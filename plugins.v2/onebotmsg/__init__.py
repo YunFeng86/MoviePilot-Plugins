@@ -17,7 +17,7 @@ class OneBotMsg(_PluginBase):
     # 插件描述
     plugin_desc = "支持使用OneBot v11协议发送消息通知。"
     # 插件图标
-    plugin_icon = "https://onebot.dev/logo.png"
+    plugin_icon = "https://img.seedvault.cn/i/2025/08/09/logo68972f3d5dcbc40.png"
     # 插件版本
     plugin_version = "1.0.0"
     # 插件作者
