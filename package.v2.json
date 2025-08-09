@@ -1,0 +1,14 @@
+{
+  "OneBotMsg": {
+    "name": "OneBot消息通知",
+    "description": "支持使用OneBot v11协议发送消息通知。",
+    "labels": "消息通知,OneBot",
+    "version": "1.0.0",
+    "icon": "https://onebot.dev/logo.png",
+    "author": "YunFeng",
+    "level": 1,
+    "history": {
+      "v1.0.0": "支持使用OneBot v11协议发送消息通知"
+    }
+  }
+}
