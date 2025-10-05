@@ -385,20 +385,7 @@ class VPSMonitor(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'rest_access_token',
-                                        'label': 'REST Access Token (Bearer)',
-                                        'placeholder': '在上方文档说明中通过设备码流程获取的 access_token',
-                                        'show': "{{ false }}"
-                                    }
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 3, 'md': 3, 'class': 'd-flex justify-start'},
+                                'props': {'cols': 12, 'md': 3, 'class': 'd-flex justify-start'},
                                 'content': [{
                                     'component': 'VBtn',
                                     'props': {
