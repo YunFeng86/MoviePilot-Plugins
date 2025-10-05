@@ -268,7 +268,6 @@ class VPSMonitor(_PluginBase):
             "(function(){var apiKey=" + js_api_token + ";"
             "fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
             ".then(function(r){return r.json()}).then(function(ret){if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}"
-            "// no user_code alert"
             "if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}"
             "var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;"
             "(function poll(){if(Date.now()>end){alert('Authorization timeout');return;}"
