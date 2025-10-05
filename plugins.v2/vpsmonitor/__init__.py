@@ -356,7 +356,7 @@ class VPSMonitor(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [{
-                                    'component': 'VBtn',
+                                    'component': 'VTextField',
                                     'props': {
                                         'model': 'cron',
                                         'label': 'Cron 定时（5 字段）',
