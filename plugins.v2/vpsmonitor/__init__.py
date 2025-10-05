@@ -398,7 +398,7 @@ class VPSMonitor(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6, 'class': 'd-flex justify-end'},
+                                'props': {'cols': 12, 'md': 3, 'class': 'd-flex justify-start'},
                                 'content': [{
                                     'component': 'VBtn',
                                     'props': {
@@ -414,7 +414,7 @@ class VPSMonitor(_PluginBase):
                             },
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
+                                'props': {'cols': 12, 'md': 9},
                                 'content': [{
                                     'component': 'VAlert',
                                     'props': {
