@@ -45,10 +45,7 @@ class VPSMonitor(_PluginBase):
     # REST 配置
     _api_mode: str = "rest"            # rest/soap
     _rest_base_url: Optional[str] = None
-    _rest_auth: str = "bearer"          # bearer/basic/none
-    _rest_token: Optional[str] = None
-    _rest_user: Optional[str] = None
-    _rest_pass: Optional[str] = None
+    _rest_token: Optional[str] = None     # Bearer Access Token（必填）
 
     def init_plugin(self, config: Optional[dict] = None):
         if config:
@@ -68,10 +65,7 @@ class VPSMonitor(_PluginBase):
             if self._api_mode not in ("rest", "soap"):
                 self._api_mode = "rest"
             self._rest_base_url = (config.get("rest_base_url") or "").strip() or None
-            self._rest_auth = (config.get("rest_auth") or "bearer").strip() or "bearer"
             self._rest_token = (config.get("rest_token") or "").strip() or None
-            self._rest_user = (config.get("rest_user") or "").strip() or None
-            self._rest_pass = (config.get("rest_pass") or "").strip() or None
 
             # 保存配置（清理 onlyonce）
             if self._onlyonce:
@@ -102,10 +96,7 @@ class VPSMonitor(_PluginBase):
             # REST
             "api_mode": self._api_mode,
             "rest_base_url": self._rest_base_url,
-            "rest_auth": self._rest_auth,
             "rest_token": self._rest_token,
-            "rest_user": self._rest_user,
-            "rest_pass": self._rest_pass,
         })
 
     @staticmethod
@@ -243,27 +234,7 @@ class VPSMonitor(_PluginBase):
             {
                 'component': 'VForm',
                 'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VSelect',
-                                    'props': {
-                                        'model': 'api_mode',
-                                        'label': 'API 模式',
-                                        'items': [
-                                            {'title': 'REST', 'value': 'rest'},
-                                            {'title': 'WSDL', 'value': 'soap'}
-                                        ],
-                                        'clearable': False
-                                    }
-                                }]
-                            }
-                        ]
-                    },
+                    
                     {
                         'component': 'VRow',
                         'content': [
@@ -352,25 +323,8 @@ class VPSMonitor(_PluginBase):
                                     'component': 'VTextField',
                                     'props': {
                                         'model': 'rest_base_url',
-                                        'label': 'REST 基址（如 https://www.servercontrolpanel.de）',
-                                        'placeholder': 'https://...（无需结尾斜杠）',
-                                        'show': "{{ api_mode == 'rest' }}"
-                                    }
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VSelect',
-                                    'props': {
-                                        'model': 'rest_auth',
-                                        'label': 'REST 认证方式',
-                                        'items': [
-                                            {'title': 'Bearer Token', 'value': 'bearer'},
-                                            {'title': 'Basic Auth',   'value': 'basic'},
-                                            {'title': '无认证',       'value': 'none'}
-                                        ],
+                                        'label': 'REST 基址（如 https://www.servercontrolpanel.de/scp-core）',
+                                        'placeholder': 'https://www.servercontrolpanel.de/scp-core',
                                         'show': "{{ api_mode == 'rest' }}"
                                     }
                                 }]
@@ -387,34 +341,13 @@ class VPSMonitor(_PluginBase):
                                     'component': 'VTextField',
                                     'props': {
                                         'model': 'rest_token',
-                                        'label': 'REST Bearer Token',
-                                        'placeholder': '仅 Bearer 模式需要',
-                                        'show': "{{ api_mode == 'rest' && rest_auth == 'bearer' }}"
+                                        'label': 'REST Access Token (Bearer)',
+                                        'placeholder': '在上方文档说明中通过设备码流程获取的 access_token',
+                                        'show': "{{ api_mode == 'rest' }}"
                                     }
                                 }]
                             },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'rest_user',
-                                            'label': 'REST 用户名（Basic）',
-                                            'show': "{{ api_mode == 'rest' && rest_auth == 'basic' }}"
-                                        }
-                                    },
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'rest_pass',
-                                            'label': 'REST 密码（Basic）',
-                                            'show': "{{ api_mode == 'rest' && rest_auth == 'basic' }}"
-                                        }
-                                    }
-                                ]
-                            }
+                            
                         ]
                     },
                     {
@@ -517,10 +450,7 @@ class VPSMonitor(_PluginBase):
             # REST 默认
             "api_mode": self._api_mode or "rest",
             "rest_base_url": self._rest_base_url or "",
-            "rest_auth": self._rest_auth,
             "rest_token": self._rest_token or "",
-            "rest_user": self._rest_user or "",
-            "rest_pass": self._rest_pass or "",
         }
 
     # ============ 内部实现 ============
@@ -552,13 +482,11 @@ class VPSMonitor(_PluginBase):
                 s.verify = not self._insecure_tls
                 headers = {}
                 auth = None
-                if self._rest_auth == 'bearer' and self._rest_token:
-                    headers['Authorization'] = f"Bearer {self._rest_token}"
-                elif self._rest_auth == 'basic' and self._rest_user and self._rest_pass:
-                    from requests.auth import HTTPBasicAuth
-                    auth = HTTPBasicAuth(self._rest_user, self._rest_pass)
+                if not self._rest_token:
+                    raise Exception("未配置 REST Access Token (Bearer)")
+                headers['Authorization'] = f"Bearer {self._rest_token}"
 
-                r = s.get(f"{base}/api/v1/servers", headers=headers or None, auth=auth, timeout=15)
+                r = s.get(f"{base}/api/v1/servers", headers=headers, timeout=15)
                 r.raise_for_status()
                 servers = r.json()
                 if isinstance(servers, dict) and 'servers' in servers:
@@ -578,7 +506,7 @@ class VPSMonitor(_PluginBase):
                     name = sv.get('vServerName') or sv.get('hostname') or sid
                     if not sid:
                         continue
-                    r2 = s.get(f"{base}/api/v1/servers/{sid}/interfaces", headers=headers or None, auth=auth, timeout=15)
+                    r2 = s.get(f"{base}/api/v1/servers/{sid}/interfaces", headers=headers, timeout=15)
                     r2.raise_for_status()
                     itf_json = r2.json()
                     if isinstance(itf_json, dict) and 'interfaces' in itf_json:
