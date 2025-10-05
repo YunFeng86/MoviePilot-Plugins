@@ -248,22 +248,19 @@ class VPSMonitor(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
-                                'props': {'cols': 12},
-                                'content': [
-                                    {
-                                        'component': 'VRadioGroup',
-                                        'props': {
-                                            'model': 'api_mode',
-                                            'label': 'API 模式',
-                                            'row': True,
-                                            'mandatory': True
-                                        },
-                                        'content': [
-                                            {'component': 'VRadio', 'props': {'label': 'REST',  'value': 'rest'}},
-                                            {'component': 'VRadio', 'props': {'label': 'WSDL',  'value': 'soap'}}
-                                        ]
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'VSelect',
+                                    'props': {
+                                        'model': 'api_mode',
+                                        'label': 'API 模式',
+                                        'items': [
+                                            {'title': 'REST', 'value': 'rest'},
+                                            {'title': 'WSDL', 'value': 'soap'}
+                                        ],
+                                        'clearable': False
                                     }
-                                ]
+                                }]
                             }
                         ]
                     },
