@@ -49,6 +49,8 @@ class VPSMonitor(_PluginBase):
     _rest_access_token: Optional[str] = None   # Bearer Access Token（存储）
     _rest_refresh_token: Optional[str] = None  # Refresh Token（存储）
     _rest_token_expires_at: Optional[int] = None  # 过期时间戳（秒）
+    # 多账户清单
+    _accounts: List[Dict[str, Any]] = []
 
     def init_plugin(self, config: Optional[dict] = None):
         if config:
@@ -73,6 +75,10 @@ class VPSMonitor(_PluginBase):
             self._rest_access_token = (config.get("rest_access_token") or "").strip() or None
             self._rest_refresh_token = (config.get("rest_refresh_token") or "").strip() or None
             self._rest_token_expires_at = config.get("rest_token_expires_at")
+            # 多账户
+            accs = config.get("accounts")
+            if isinstance(accs, list):
+                self._accounts = accs
 
             # 保存配置（清理 onlyonce）
             if self._onlyonce:
@@ -106,6 +112,8 @@ class VPSMonitor(_PluginBase):
             "rest_access_token": self._rest_access_token,
             "rest_refresh_token": self._rest_refresh_token,
             "rest_token_expires_at": self._rest_token_expires_at,
+            # 多账户
+            "accounts": self._accounts,
         })
 
     @staticmethod
@@ -134,6 +142,20 @@ class VPSMonitor(_PluginBase):
                 "methods": ["POST"],
                 "summary": "撤销刷新令牌并清除授权",
                 "description": "调用 revoke 接口，清空本地令牌"
+            },
+            {
+                "path": "/account_add",
+                "endpoint": self.account_add,
+                "methods": ["POST"],
+                "summary": "新增账户",
+                "description": "新增一个待授权的账户（name）"
+            },
+            {
+                "path": "/account_remove",
+                "endpoint": self.account_remove,
+                "methods": ["POST"],
+                "summary": "删除账户",
+                "description": "根据 id 删除账户"
             }
         ]
 
@@ -248,10 +270,93 @@ class VPSMonitor(_PluginBase):
             ".catch(function(e){alert('Request failed:'+e);});})()"
         )
 
+        # 多账户列表UI
+        account_items: List[dict] = []
+        if isinstance(self._accounts, list) and self._accounts:
+            for acc in self._accounts:
+                acc_id = str(acc.get('id') or '')
+                acc_name = str(acc.get('name') or '未命名')
+                authorized = bool(acc.get('rest_access_token'))
+                # 授权按钮JS（带账户ID）
+                js_get = (
+                    "(function(){var apiKey=" + js_api_token + ";"
+                    f"fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{{method:'POST'}})"
+                    ".then(function(r){return r.json()}).then(function(ret){if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}"
+                    "if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}"
+                    "var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;"
+                    "(function poll(){if(Date.now()>end){alert('Authorization timeout');return;}"
+                    f"fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{device_code:dc,account_id:'{acc_id}'}})}})"
+                    ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');window.location.hash='#/plugins?tab=installed&id=VPSMonitor';return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
+                    "}).catch(function(e){alert('Request failed:'+e);});})()"
+                )
+                js_revoke = (
+                    "(function(){var apiKey=" + js_api_token + ";"
+                    f"fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{account_id:'{acc_id}'}})}})"
+                    ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');window.location.hash='#/plugins?tab=installed&id=VPSMonitor';}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
+                    ".catch(function(e){alert('Request failed:'+e);});})()"
+                )
+                js_remove = (
+                    "(function(){var apiKey=" + js_api_token + ";if(!confirm('确认删除该账户?'))return;"
+                    f"fetch('/api/v1/plugin/VPSMonitor/account_remove?apikey='+encodeURIComponent(apiKey),{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{id:'{acc_id}'}})}})"
+                    ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Removed');window.location.hash='#/plugins?tab=installed&id=VPSMonitor';}else{alert('Remove failed:'+((ret&&ret.message)||''));}})"
+                    ".catch(function(e){alert('Request failed:'+e);});})()"
+                )
+                account_items.append({
+                    'component': 'VListItem',
+                    'content': [
+                        {'component': 'VListItemTitle', 'text': acc_name},
+                        {'component': 'VSpacer'},
+                        {'component': 'VBtn', 'props': {'size': 'small', 'class': 'mr-2', 'onClick': f"function(e){{{js_get}}}"}, 'text': ('重新授权' if authorized else '获取验证链接')},
+                        {'component': 'VBtn', 'props': {'size': 'small', 'class': 'mr-2', 'onClick': f"function(e){{{js_revoke}}}", 'color': 'warning'}, 'text': '取消授权'},
+                        {'component': 'VBtn', 'props': {'size': 'small', 'onClick': f"function(e){{{js_remove}}}", 'color': 'error'}, 'text': '删除'}
+                    ]
+                })
+
         return [
             {
                 'component': 'VForm',
                 'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'VBtn',
+                                    'props': {
+                                        'color': 'primary',
+                                        'variant': 'elevated',
+                                        'onClick': (
+                                            "function(e){var name=prompt('输入账户名称');if(!name)return;var apiKey=" + js_api_token + ";"
+                                            "fetch('/api/v1/plugin/VPSMonitor/account_add?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})})"
+                                            ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Added');window.location.hash='#/plugins?tab=installed&id=VPSMonitor';}else{alert('Add failed:'+((ret&&ret.message)||''));}}).catch(function(e){alert('Request failed:'+e);});}"
+                                        )
+                                    },
+                                    'text': '添加账户',
+                                    'show': "{{ api_mode == 'rest' }}"
+                                }]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'props': {'show': "{{ api_mode == 'rest' }}"},
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12},
+                                'content': [{
+                                    'component': 'VList',
+                                    'props': {'lines': 'one', 'density': 'compact'},
+                                    'content': account_items if account_items else [{
+                                        'component': 'VListItem',
+                                        'content': [{'component': 'VListItemTitle', 'text': '暂无账户，请先点击“添加账户”。'}]
+                                    }]
+                                }]
+                            }
+                        ]
+                    },
                     
                     
                     {
@@ -448,6 +553,7 @@ class VPSMonitor(_PluginBase):
             "api_mode": self._api_mode or "rest",
             "rest_base_url": "",
             "rest_access_token": self._rest_access_token or "",
+            "accounts": self._accounts or [],
         }
 
     # ============ 内部实现 ============
@@ -505,34 +611,48 @@ class VPSMonitor(_PluginBase):
                 if not base:
                     raise Exception("未配置 REST 基址")
 
-                s = requests.Session()
-                s.verify = not self._insecure_tls
-                headers = {}
-                auth = None
-                # Token 预处理：若无 Access Token 但有 Refresh Token，则尝试刷新；若过期也刷新
-                import time as _t
-                now = int(_t.time())
-                if (not self._rest_access_token) and self._rest_refresh_token:
-                    self._refresh_access_token()
-                elif self._rest_token_expires_at and now >= int(self._rest_token_expires_at) - 60:
-                    # 过期前60秒尝试刷新
-                    self._refresh_access_token()
-                if not self._rest_access_token:
-                    # 无法自动获取令牌，给出温和提示并退出
-                    logger.warning("REST 调用跳过：未配置 REST Access Token (Bearer)，请在插件页完成授权")
-                    self._notify("🔴 REST 未授权",
-                                 "未检测到 Access Token，请在插件配置页点击‘获取验证链接’完成授权。",
-                                 success=False)
-                    return
-                headers['Authorization'] = f"Bearer {self._rest_access_token}"
+                accounts = self._accounts if isinstance(self._accounts, list) and self._accounts else [
+                    {
+                        'id': 'default',
+                        'name': '默认账户',
+                        'enabled': True,
+                        'rest_access_token': self._rest_access_token,
+                        'rest_refresh_token': self._rest_refresh_token,
+                        'rest_token_expires_at': self._rest_token_expires_at,
+                    }
+                ]
+                servers_count = 0
+                for acc in accounts:
+                    if acc is None or acc.get('enabled') is False:
+                        continue
+                    s = requests.Session()
+                    s.verify = not self._insecure_tls
+                    headers = {}
+                    import time as _t
+                    now = int(_t.time())
+                    if acc.get('id') != 'default':
+                        if not acc.get('rest_access_token'):
+                            logger.warning(f"REST 调用跳过[{acc.get('name','')}]: 未授权")
+                            continue
+                        headers['Authorization'] = f"Bearer {acc.get('rest_access_token')}"
+                    else:
+                        if (not self._rest_access_token) and self._rest_refresh_token:
+                            self._refresh_access_token()
+                        elif self._rest_token_expires_at and now >= int(self._rest_token_expires_at) - 60:
+                            self._refresh_access_token()
+                        if not self._rest_access_token:
+                            logger.warning("REST 调用跳过：未配置 REST Access Token (Bearer)，请在插件页完成授权")
+                            continue
+                        headers['Authorization'] = f"Bearer {self._rest_access_token}"
 
-                r = s.get(f"{base}/api/v1/servers", headers=headers, timeout=15)
-                r.raise_for_status()
-                servers = r.json()
-                if isinstance(servers, dict) and 'servers' in servers:
-                    servers = servers.get('servers')
-                if not isinstance(servers, list):
-                    raise Exception("REST 返回格式异常：servers 不是列表")
+                    r = s.get(f"{base}/api/v1/servers", headers=headers, timeout=15)
+                    r.raise_for_status()
+                    servers = r.json()
+                    if isinstance(servers, dict) and 'servers' in servers:
+                        servers = servers.get('servers')
+                    if not isinstance(servers, list):
+                        raise Exception("REST 返回格式异常：servers 不是列表")
+                    servers_count += len(servers)
 
                 def first_ipv4(v):
                     ips = v.get('ips') if isinstance(v.get('ips'), list) else []
@@ -569,7 +689,7 @@ class VPSMonitor(_PluginBase):
                     self._notify("⚠️ VPS 被限速", "以下 VPS 当前被限速：\n" + "\n".join(throttled_rest), success=False)
                 else:
                     if self._notify_all_ok:
-                        self._notify("🟢 所有 VPS 正常", f"共 {len(servers)} 台 VPS，均未被限速。", success=True)
+                        self._notify("🟢 所有 VPS 正常", f"共 {servers_count} 台 VPS，均未被限速。", success=True)
                 return
             except Exception as e:
                 # 若遇 401 再尝试刷新一次后重试一次服务器列表
@@ -735,6 +855,7 @@ class VPSMonitor(_PluginBase):
             import requests, time
             req = device_code or {}
             dc = req.get('device_code') if isinstance(req, dict) else None
+            acc_id = req.get('account_id') if isinstance(req, dict) else None
             resp = requests.post(
                 'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/token',
                 data={
@@ -746,30 +867,87 @@ class VPSMonitor(_PluginBase):
             if resp.status_code != 200:
                 return {'code': 202, 'message': resp.text}
             data = resp.json() or {}
-            self._rest_access_token = data.get('access_token')
-            self._rest_refresh_token = data.get('refresh_token')
             expires_in = data.get('expires_in') or 300
             import time as _t
-            self._rest_token_expires_at = int(_t.time()) + int(expires_in)
+            if acc_id and any(isinstance(a, dict) and a.get('id') == acc_id for a in (self._accounts or [])):
+                for a in self._accounts:
+                    if a.get('id') == acc_id:
+                        a['rest_access_token'] = data.get('access_token')
+                        a['rest_refresh_token'] = data.get('refresh_token')
+                        a['rest_token_expires_at'] = int(_t.time()) + int(expires_in)
+                        break
+            else:
+                self._rest_access_token = data.get('access_token')
+                self._rest_refresh_token = data.get('refresh_token')
+                self._rest_token_expires_at = int(_t.time()) + int(expires_in)
             self.__update_config()
             return {'code': 200, 'message': 'ok'}
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
-    def revoke_device_token(self):
+    def revoke_device_token(self, req: Optional[dict] = None):
         """撤销令牌并清除本地"""
         try:
             import requests
-            if self._rest_refresh_token:
-                requests.post(
-                    'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/revoke',
-                    data={'client_id': 'scp', 'token': self._rest_refresh_token, 'token_type_hint': 'refresh_token'}, timeout=15
-                )
-            self._rest_access_token = None
-            self._rest_refresh_token = None
-            self._rest_token_expires_at = None
+            acc_id = (req or {}).get('account_id') if isinstance(req, dict) else None
+            if acc_id:
+                for a in (self._accounts or []):
+                    if a.get('id') == acc_id:
+                        if a.get('rest_refresh_token'):
+                            requests.post(
+                                'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/revoke',
+                                data={'client_id': 'scp', 'token': a.get('rest_refresh_token'), 'token_type_hint': 'refresh_token'}, timeout=15
+                            )
+                        a['rest_access_token'] = None
+                        a['rest_refresh_token'] = None
+                        a['rest_token_expires_at'] = None
+                        break
+            else:
+                if self._rest_refresh_token:
+                    requests.post(
+                        'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/revoke',
+                        data={'client_id': 'scp', 'token': self._rest_refresh_token, 'token_type_hint': 'refresh_token'}, timeout=15
+                    )
+                self._rest_access_token = None
+                self._rest_refresh_token = None
+                self._rest_token_expires_at = None
             self.__update_config()
             return {'code': 200, 'message': 'revoked'}
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
+
+    def account_add(self, req: Optional[dict] = None):
+        try:
+            import uuid
+            name = (req or {}).get('name') if isinstance(req, dict) else None
+            if not name:
+                return {'code': 400, 'message': 'name required'}
+            acc = {
+                'id': uuid.uuid4().hex,
+                'name': str(name),
+                'enabled': True,
+                'rest_access_token': None,
+                'rest_refresh_token': None,
+                'rest_token_expires_at': None,
+            }
+            if not isinstance(self._accounts, list):
+                self._accounts = []
+            self._accounts.append(acc)
+            self.__update_config()
+            return {'code': 200, 'message': 'ok', 'data': acc}
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
+
+    def account_remove(self, req: Optional[dict] = None):
+        try:
+            acc_id = (req or {}).get('id') if isinstance(req, dict) else None
+            if not acc_id:
+                return {'code': 400, 'message': 'id required'}
+            if not isinstance(self._accounts, list):
+                self._accounts = []
+            self._accounts = [a for a in self._accounts if a.get('id') != acc_id]
+            self.__update_config()
+            return {'code': 200, 'message': 'ok'}
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
