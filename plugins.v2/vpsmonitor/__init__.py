@@ -298,6 +298,22 @@ class VPSMonitor(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [{
+                                    'component': 'VSelect',
+                                    'props': {
+                                        'model': 'api_mode',
+                                        'label': 'API 模式',
+                                        'items': [
+                                            {'title': 'REST', 'value': 'rest'},
+                                            {'title': 'WSDL', 'value': 'soap'}
+                                        ],
+                                        'clearable': False
+                                    }
+                                }]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
                                     'component': 'VTextField',
                                     'props': {
                                         'model': 'cron',
@@ -305,7 +321,12 @@ class VPSMonitor(_PluginBase):
                                         'placeholder': '*/10 * * * *',
                                     }
                                 }]
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
                             {
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
