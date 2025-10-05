@@ -446,7 +446,7 @@ class VPSMonitor(_PluginBase):
                                     'component': 'VSwitch',
                                     'props': {
                                         'model': 'insecure_tls',
-                                        'label': '不安全 TLS（跳过证书校验）',
+                                        'label': '跳过证书校验（不安全 TLS）',
                                     }
                                 }]
                             },
@@ -457,7 +457,7 @@ class VPSMonitor(_PluginBase):
                                     'component': 'VSwitch',
                                     'props': {
                                         'model': 'debug_dump',
-                                        'label': '调试日志（输出完整返回）',
+                                        'label': '调试模式（输出完整返回）',
                                     }
                                 }]
                             }
