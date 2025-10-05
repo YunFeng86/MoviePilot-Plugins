@@ -253,6 +253,22 @@ class VPSMonitor(_PluginBase):
                                     }
                                 ]
                             }
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'VAlert',
+                                    'props': {
+                                        'type': 'info',
+                                        'variant': 'tonal',
+                                        'density': 'compact',
+                                        'border': 'start',
+                                        'color': 'primary'
+                                    },
+                                    'text': '登录 Netcup SCP 账号并授权本应用，授权后将自动保存令牌；可点击“取消授权”撤销。',
+                                    'show': "{{ api_mode == 'rest' }}"
+                                }]
+                            }
                         ]
                     }
                 ]
@@ -288,44 +304,7 @@ class VPSMonitor(_PluginBase):
             {
                 'component': 'VForm',
                 'content': [
-                    # 行：REST 设备码按钮（右）
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VAlert',
-                                    'props': {
-                                        'type': 'info',
-                                        'variant': 'tonal',
-                                        'density': 'compact',
-                                        'border': 'start',
-                                        'color': 'primary'
-                                    },
-                                    'text': 'REST 基址：https://www.servercontrolpanel.de/scp-core（已固定）',
-                                    'show': "{{ api_mode == 'rest' }}"
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6, 'class': 'd-flex justify-end'},
-                                'content': [{
-                                    'component': 'VBtn',
-                                    'props': {
-                                        'color': 'primary',
-                                        'variant': 'elevated',
-                                        'class': 'mt-2',
-                                        'onClick': ("function(event){" + onclick_revoke_js_script + "}" if (self._api_mode == 'rest' and self._rest_access_token) else "function(event){" + onclick_get_js_script + "}"),
-                                        'id': 'vpsmonitor-auth-btn',
-                                        'show': "{{ api_mode == 'rest' }}"
-                                    },
-                                    'text': ('取消授权' if (self._api_mode == 'rest' and self._rest_access_token) else '获取验证链接')
-                                }]
-                            }
-                        ]
-                    },
+                    
                     
                     {
                         'component': 'VRow',
@@ -377,7 +356,7 @@ class VPSMonitor(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [{
-                                    'component': 'VTextField',
+                                    'component': 'VBtn',
                                     'props': {
                                         'model': 'cron',
                                         'label': 'Cron 定时（5 字段）',
@@ -429,11 +408,26 @@ class VPSMonitor(_PluginBase):
                                         'model': 'rest_access_token',
                                         'label': 'REST Access Token (Bearer)',
                                         'placeholder': '在上方文档说明中通过设备码流程获取的 access_token',
-                                        'show': "{{ api_mode == 'rest' }}"
+                                        'show': "{{ false }}"
                                     }
                                 }]
                             },
-                            
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6, 'class': 'd-flex justify-end'},
+                                'content': [{
+                                    'component': 'VBtn',
+                                    'props': {
+                                        'color': 'primary',
+                                        'variant': 'elevated',
+                                        'class': 'mt-2',
+                                        'onClick': ("function(event){" + onclick_revoke_js_script + "}" if (self._api_mode == 'rest' and self._rest_access_token) else "function(event){" + onclick_get_js_script + "}"),
+                                        'id': 'vpsmonitor-auth-btn',
+                                        'show': "{{ api_mode == 'rest' }}"
+                                    },
+                                    'text': ('取消授权' if (self._api_mode == 'rest' and self._rest_access_token) else '获取验证链接')
+                                }]
+                            },
                         ]
                     },
                     
