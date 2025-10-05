@@ -14,6 +14,7 @@ VPS 限速监控插件（plugins.v2）
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.event import Event, eventmanager
+from app.core.config import settings
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
@@ -21,8 +22,8 @@ from app.schemas.types import EventType, NotificationType
 
 class VPSMonitor(_PluginBase):
     # 基本信息
-    plugin_name = "VPS 限速监控"
-    plugin_desc = "定时检测 SCP 下 VPS 是否被限速，并通过通知插件发送结果。"
+    plugin_name = "Netcup VPS 限速监控"
+    plugin_desc = "定时检测NC SCP 下 VPS 是否被限速，并通过通知插件发送结果。"
     plugin_icon = "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png"
     plugin_version = "0.2.0"
     plugin_author = "YunFeng"
@@ -106,7 +107,13 @@ class VPSMonitor(_PluginBase):
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return []
+        return [{
+            "path": "/start_device_flow",
+            "endpoint": self.start_device_flow,
+            "methods": ["POST"],
+            "summary": "生成设备码并返回验证链接",
+            "description": "调用 SCP OpenID 设备码接口，返回 verification_uri_complete 与 user_code"
+        }]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -232,10 +239,69 @@ class VPSMonitor(_PluginBase):
         ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        # 构造获取验证链接按钮的 onclick JS
+        import json as _json
+        js_api_token = _json.dumps(settings.API_TOKEN)
+        onclick_js = f"""
+        (async () => {{
+            try {{
+                const apiKey = {js_api_token};
+                const url = `/api/v1/plugin/VPSMonitor/start_device_flow?apikey=${{encodeURIComponent(apiKey)}}`;
+                const res = await fetch(url, {{ method: 'POST' }});
+                const ret = await res.json();
+                if (ret && ret.code === 200 && ret.data) {{
+                    const tip = `已生成设备码，用户代码：${{ret.data.user_code}}`;
+                    alert(tip + '\n\n请在打开的新页面完成授权。');
+                    if (ret.data.verification_uri_complete) {{
+                        window.open(ret.data.verification_uri_complete, '_blank');
+                    }}
+                }} else {{
+                    alert('生成设备码失败：' + (ret && ret.message ? ret.message : '未知错误'));
+                }}
+            }} catch (e) {{
+                alert('请求失败：' + e);
+            }}
+        }})()
+        """
+
         return [
             {
                 'component': 'VForm',
                 'content': [
+                    # 行：REST 设备码按钮（右）
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'div',
+                                    'props': {
+                                        'class': 'text-body-2 text-medium-emphasis',
+                                        'style': 'padding-top: 10px;',
+                                    },
+                                    'text': 'REST 基址：https://www.servercontrolpanel.de/scp-core（已固定）',
+                                    'show': "{{ api_mode == 'rest' }}"
+                                }]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6, 'class': 'd-flex justify-end'},
+                                'content': [{
+                                    'component': 'VBtn',
+                                    'props': {
+                                        'color': 'primary',
+                                        'variant': 'elevated',
+                                        'class': 'mt-2',
+                                        'onclick': onclick_js,
+                                        'show': "{{ api_mode == 'rest' }}"
+                                    },
+                                    'text': '获取验证链接'
+                                }]
+                            }
+                        ]
+                    },
                     
                     {
                         'component': 'VRow',
@@ -326,24 +392,7 @@ class VPSMonitor(_PluginBase):
                             }
                         ]
                     },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'rest_base_url',
-                                        'label': 'REST 基址（如 https://www.servercontrolpanel.de/scp-core）',
-                                        'placeholder': 'https://www.servercontrolpanel.de/scp-core',
-                                        'show': "{{ api_mode == 'rest' }}"
-                                    }
-                                }]
-                            }
-                        ]
-                    },
+                    
                     {
                         'component': 'VRow',
                         'content': [
@@ -425,7 +474,7 @@ class VPSMonitor(_PluginBase):
             "debug_dump": self._debug_dump,
             # REST 默认
             "api_mode": self._api_mode or "rest",
-            "rest_base_url": self._rest_base_url or "",
+            "rest_base_url": "",
             "rest_token": self._rest_token or "",
         }
 
@@ -450,7 +499,7 @@ class VPSMonitor(_PluginBase):
         if self._api_mode == "rest":
             try:
                 throttled_rest: List[str] = []
-                base = (self._rest_base_url or '').rstrip('/')
+                base = 'https://www.servercontrolpanel.de/scp-core'
                 if not base:
                     raise Exception("未配置 REST 基址")
 
@@ -511,6 +560,31 @@ class VPSMonitor(_PluginBase):
                 logger.error(f"REST 调用失败：{e}")
                 self._notify("🔴 REST 调用失败", str(e), success=False)
                 return
+
+    def start_device_flow(self):
+        """生成设备码，返回带 user_code 的验证链接"""
+        try:
+            import requests
+            resp = requests.post(
+                'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/auth/device',
+                data={'client_id': 'scp', 'scope': 'offline_access openid'}, timeout=15
+            )
+            resp.raise_for_status()
+            data = resp.json() or {}
+            return {
+                'code': 200,
+                'message': 'OK',
+                'data': {
+                    'device_code': data.get('device_code'),
+                    'user_code': data.get('user_code'),
+                    'verification_uri': data.get('verification_uri'),
+                    'verification_uri_complete': data.get('verification_uri_complete'),
+                    'expires_in': data.get('expires_in'),
+                    'interval': data.get('interval')
+                }
+            }
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
 
         # ========== SOAP 路径 ==========
         # SOAP 需要凭据
