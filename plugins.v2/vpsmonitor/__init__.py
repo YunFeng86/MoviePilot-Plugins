@@ -318,7 +318,7 @@ class VPSMonitor(_PluginBase):
                                         'color': 'primary',
                                         'variant': 'elevated',
                                         'class': 'mt-2',
-                                        'onClick': ("(event)=>{" + onclick_revoke_js_script + "}" if (self._api_mode == 'rest' and self._rest_access_token) else "(event)=>{" + onclick_get_js_script + "}"),
+                                        'onClick': ("function(event){" + onclick_revoke_js_script + "}" if (self._api_mode == 'rest' and self._rest_access_token) else "function(event){" + onclick_get_js_script + "}"),
                                         'id': 'vpsmonitor-auth-btn',
                                         'show': "{{ api_mode == 'rest' }}"
                                     },
