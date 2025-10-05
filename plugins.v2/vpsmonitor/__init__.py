@@ -25,7 +25,7 @@ class VPSMonitor(_PluginBase):
     plugin_desc = "定时检测 SCP 下 VPS 是否被限速，并通过通知插件发送结果。"
     plugin_icon = "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png"
     plugin_version = "0.1.0"
-    plugin_author = "YunFeng & Codex"
+    plugin_author = "YunFeng"
     author_url = "https://github.com/YunFeng86"
     plugin_config_prefix = "vpsmonitor_"
     plugin_order = 90
