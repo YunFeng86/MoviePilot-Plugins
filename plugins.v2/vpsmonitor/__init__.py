@@ -25,7 +25,7 @@ class VPSMonitor(_PluginBase):
     plugin_name = "Netcup VPS 限速监控"
     plugin_desc = "定时检测NC SCP 下 VPS 是否被限速，并通过通知插件发送结果。"
     plugin_icon = "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png"
-    plugin_version = "0.2.0"
+    plugin_version = "0.2.1"
     plugin_author = "YunFeng"
     author_url = "https://github.com/YunFeng86"
     plugin_config_prefix = "vpsmonitor_"
@@ -272,7 +272,7 @@ class VPSMonitor(_PluginBase):
             "var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;"
             "(function poll(){if(Date.now()>end){alert('Authorization timeout');return;}"
             "fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc})})"
-            ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
+            ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}location.reload();return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
             "}).catch(function(e){alert('Request failed:'+e);});})()"
         )
         # onClick 具体值在下方使用即时拼接 (event)=>{...}
@@ -280,7 +280,7 @@ class VPSMonitor(_PluginBase):
         onclick_revoke_js_script = (
             "(function(){var apiKey=" + js_api_token + ";"
             "fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
-            ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
+            ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}location.reload();}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
             ".catch(function(e){alert('Request failed:'+e);});})()"
         )
 
@@ -497,6 +497,36 @@ class VPSMonitor(_PluginBase):
         }
 
     # ============ 内部实现 ============
+    def _refresh_access_token(self) -> bool:
+        """使用 Refresh Token 刷新 Access Token，并持久化。
+        返回：True 刷新成功/False 失败或无可用刷新令牌。
+        """
+        try:
+            import time
+            import requests
+            if not self._rest_refresh_token:
+                return False
+            resp = requests.post(
+                'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/token',
+                data={
+                    'grant_type': 'refresh_token',
+                    'refresh_token': self._rest_refresh_token,
+                    'client_id': 'scp'
+                }, timeout=15
+            )
+            if resp.status_code != 200:
+                logger.warning(f"REST 刷新令牌失败：{resp.text}")
+                return False
+            data = resp.json() or {}
+            self._rest_access_token = data.get('access_token')
+            self._rest_refresh_token = data.get('refresh_token') or self._rest_refresh_token
+            expires_in = data.get('expires_in') or 300
+            self._rest_token_expires_at = int(time.time()) + int(expires_in)
+            self.__update_config()
+            return True
+        except Exception as e:
+            logger.warning(f"REST 刷新令牌异常：{e}")
+            return False
     def _run_check(self):
         """执行一次检测"""
         # 依赖检查
@@ -525,8 +555,21 @@ class VPSMonitor(_PluginBase):
                 s.verify = not self._insecure_tls
                 headers = {}
                 auth = None
+                # Token 预处理：若无 Access Token 但有 Refresh Token，则尝试刷新；若过期也刷新
+                import time as _t
+                now = int(_t.time())
+                if (not self._rest_access_token) and self._rest_refresh_token:
+                    self._refresh_access_token()
+                elif self._rest_token_expires_at and now >= int(self._rest_token_expires_at) - 60:
+                    # 过期前60秒尝试刷新
+                    self._refresh_access_token()
                 if not self._rest_access_token:
-                    raise Exception("未配置 REST Access Token (Bearer)")
+                    # 无法自动获取令牌，给出温和提示并退出
+                    logger.warning("REST 调用跳过：未配置 REST Access Token (Bearer)，请在插件页完成授权")
+                    self._notify("🔴 REST 未授权",
+                                 "未检测到 Access Token，请在插件配置页点击‘获取验证链接’完成授权。",
+                                 success=False)
+                    return
                 headers['Authorization'] = f"Bearer {self._rest_access_token}"
 
                 r = s.get(f"{base}/api/v1/servers", headers=headers, timeout=15)
@@ -575,6 +618,20 @@ class VPSMonitor(_PluginBase):
                         self._notify("🟢 所有 VPS 正常", f"共 {len(servers)} 台 VPS，均未被限速。", success=True)
                 return
             except Exception as e:
+                # 若遇 401 再尝试刷新一次后重试一次服务器列表
+                try:
+                    msg = str(e)
+                    if '401' in msg or 'Unauthorized' in msg:
+                        if self._refresh_access_token():
+                            s = requests.Session()
+                            s.verify = not self._insecure_tls
+                            headers = {'Authorization': f"Bearer {self._rest_access_token}"}
+                            r = s.get(f"{(self._rest_base_url or 'https://www.servercontrolpanel.de/scp-core')}/api/v1/servers", headers=headers, timeout=15)
+                            r.raise_for_status()
+                            logger.info("REST 401 后刷新令牌重试成功")
+                            return
+                except Exception as _e:
+                    logger.warning(f"REST 刷新重试失败：{_e}")
                 logger.error(f"REST 调用失败：{e}")
                 self._notify("🔴 REST 调用失败", str(e), success=False)
                 return
@@ -724,13 +781,6 @@ class VPSMonitor(_PluginBase):
             import requests, time
             req = device_code or {}
             dc = req.get('device_code') if isinstance(req, dict) else None
-            if not dc:
-                from fastapi import Request
-                try:
-                    # 适配FastAPI传参
-                    dc = Request and hasattr(Request,'scope') and isinstance(Request.scope, dict) and Request.scope.get('query_string')  # type: ignore[attr-defined]
-                except Exception:
-                    pass
             resp = requests.post(
                 'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/token',
                 data={
