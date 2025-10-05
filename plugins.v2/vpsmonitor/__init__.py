@@ -242,27 +242,14 @@ class VPSMonitor(_PluginBase):
         # 构造获取验证链接按钮的 onclick JS
         import json as _json
         js_api_token = _json.dumps(settings.API_TOKEN)
-        onclick_js = f"""
-        (async () => {{
-            try {{
-                const apiKey = {js_api_token};
-                const url = `/api/v1/plugin/VPSMonitor/start_device_flow?apikey=${{encodeURIComponent(apiKey)}}`;
-                const res = await fetch(url, {{ method: 'POST' }});
-                const ret = await res.json();
-                if (ret && ret.code === 200 && ret.data) {{
-                    const tip = `已生成设备码，用户代码：${{ret.data.user_code}}`;
-                    alert(tip + '\n\n请在打开的新页面完成授权。');
-                    if (ret.data.verification_uri_complete) {{
-                        window.open(ret.data.verification_uri_complete, '_blank');
-                    }}
-                }} else {{
-                    alert('生成设备码失败：' + (ret && ret.message ? ret.message : '未知错误'));
-                }}
-            }} catch (e) {{
-                alert('请求失败：' + e);
-            }}
-        }})()
-        """
+        # 使用单行纯ASCII JS，避免前端 eval 报错
+        onclick_js = (
+            "(function(){var apiKey=" + js_api_token + ";var url='/api/v1/plugin/VPSMonitor/start_device_flow?apikey=' + encodeURIComponent(apiKey);"
+            "fetch(url,{method:'POST'}).then(function(res){return res.json()}).then(function(ret){"
+            "if(ret&&ret.code===200&&ret.data){alert('已生成设备码，用户代码：'+(ret.data.user_code||''));"
+            "if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}}"
+            "else{alert('生成设备码失败：'+(ret&&ret.message?ret.message:'未知错误'));}}).catch(function(e){alert('请求失败：'+e);});})()"
+        )
 
         return [
             {
