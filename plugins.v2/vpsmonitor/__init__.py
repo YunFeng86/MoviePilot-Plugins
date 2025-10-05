@@ -276,10 +276,13 @@ class VPSMonitor(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [{
-                                    'component': 'div',
+                                    'component': 'VAlert',
                                     'props': {
-                                        'class': 'text-body-2 text-medium-emphasis',
-                                        'style': 'padding-top: 10px;',
+                                        'type': 'info',
+                                        'variant': 'tonal',
+                                        'density': 'compact',
+                                        'border': 'start',
+                                        'color': 'primary'
                                     },
                                     'text': 'REST 基址：https://www.servercontrolpanel.de/scp-core（已固定）',
                                     'show': "{{ api_mode == 'rest' }}"
