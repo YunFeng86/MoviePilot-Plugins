@@ -340,11 +340,11 @@ class VPSMonitor(_PluginBase):
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [{
-                                    'component': 'VTextField',
+                                    'component': 'VCronField',
                                     'props': {
                                         'model': 'cron',
-                                        'label': 'Cron 定时（5 字段）',
-                                        'placeholder': '*/10 * * * *',
+                                        'label': '执行周期',
+                                        'placeholder': '5位cron表达式，留空自动'
                                     }
                                 }]
                             }
