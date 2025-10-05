@@ -368,7 +368,7 @@ class VPSMonitor(_PluginBase):
                                         'model': 'rest_token',
                                         'label': 'REST Bearer Token',
                                         'placeholder': '仅 Bearer 模式需要',
-                                        'show': "{{ api_mode == 'rest' and rest_auth == 'bearer' }}"
+                                        'show': "{{ api_mode == 'rest' && rest_auth == 'bearer' }}"
                                     }
                                 }]
                             },
@@ -381,7 +381,7 @@ class VPSMonitor(_PluginBase):
                                         'props': {
                                             'model': 'rest_user',
                                             'label': 'REST 用户名（Basic）',
-                                            'show': "{{ api_mode == 'rest' and rest_auth == 'basic' }}"
+                                            'show': "{{ api_mode == 'rest' && rest_auth == 'basic' }}"
                                         }
                                     },
                                     {
@@ -389,7 +389,7 @@ class VPSMonitor(_PluginBase):
                                         'props': {
                                             'model': 'rest_pass',
                                             'label': 'REST 密码（Basic）',
-                                            'show': "{{ api_mode == 'rest' and rest_auth == 'basic' }}"
+                                            'show': "{{ api_mode == 'rest' && rest_auth == 'basic' }}"
                                         }
                                     }
                                 ]
