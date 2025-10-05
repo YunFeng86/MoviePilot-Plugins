@@ -212,34 +212,7 @@ class VPSMonitor(_PluginBase):
                                                         {'component': 'span', 'text': cron_text}
                                                     ]}
                                                 ]
-                                            },
-                                            {
-                                                'component': 'VListItem',
-                                                'content': [
-                                                    {'component': 'VListItemTitle', 'content': [
-                                                        {'component': 'strong', 'text': 'WSDL：'},
-                                                        {'component': 'span', 'text': wsdl_text}
-                                                    ]}
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VListItem',
-                                                'content': [
-                                                    {'component': 'VListItemTitle', 'content': [
-                                                        {'component': 'strong', 'text': '语言：'},
-                                                        {'component': 'span', 'text': language_text}
-                                                    ]}
-                                                ]
-                                            },
-                                            {
-                                                'component': 'VListItem',
-                                                'content': [
-                                                    {'component': 'VListItemTitle', 'content': [
-                                                        {'component': 'strong', 'text': '不安全 TLS：'},
-                                                        {'component': 'span', 'text': insecure_text}
-                                                    ]}
-                                                ]
-                                            },
+                                            }
                                         ]
                                     }
                                 ]
