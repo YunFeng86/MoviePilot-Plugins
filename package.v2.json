@@ -13,14 +13,15 @@
   },
   "VPSMonitor": {
     "name": "VPS 限速监控",
-    "description": "定时检测 SCP 下 VPS 是否被限速，并通过通知插件发送结果。",
+    "description": "定时检测 SCP 下 VPS 是否被限速，并通过通知插件发送结果。支持 REST/WSDL（自动回退）",
     "labels": "VPS,监控,通知",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "icon": "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png",
-    "author": "YunFeng & Codex",
+    "author": "YunFeng",
     "level": 1,
     "history": {
-      "v0.1.0": "初始版本：支持限速检测与通知，Cron 定时与立即运行一次"
+      "v0.1.0": "初始版本：支持限速检测与通知，Cron 定时与立即运行一次",
+      "v0.2.0": "新增 REST 接口支持（可选择 AUTO/REST/WSDL），REST 基址与认证可配置"
     }
   }
 }

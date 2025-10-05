@@ -24,7 +24,7 @@ class VPSMonitor(_PluginBase):
     plugin_name = "VPS 限速监控"
     plugin_desc = "定时检测 SCP 下 VPS 是否被限速，并通过通知插件发送结果。"
     plugin_icon = "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png"
-    plugin_version = "0.1.0"
+    plugin_version = "0.2.0"
     plugin_author = "YunFeng"
     author_url = "https://github.com/YunFeng86"
     plugin_config_prefix = "vpsmonitor_"
@@ -42,6 +42,13 @@ class VPSMonitor(_PluginBase):
     _notify_all_ok: bool = True
     _insecure_tls: bool = False
     _debug_dump: bool = False
+    # REST 配置
+    _api_mode: str = "rest"            # rest/soap
+    _rest_base_url: Optional[str] = None
+    _rest_auth: str = "bearer"          # bearer/basic/none
+    _rest_token: Optional[str] = None
+    _rest_user: Optional[str] = None
+    _rest_pass: Optional[str] = None
 
     def init_plugin(self, config: Optional[dict] = None):
         if config:
@@ -55,6 +62,16 @@ class VPSMonitor(_PluginBase):
             self._notify_all_ok = bool(config.get("notify_all_ok", True))
             self._insecure_tls = bool(config.get("insecure_tls", False))
             self._debug_dump = bool(config.get("debug_dump", False))
+
+            # REST 相关
+            self._api_mode = (config.get("api_mode") or "rest").strip() or "rest"
+            if self._api_mode not in ("rest", "soap"):
+                self._api_mode = "rest"
+            self._rest_base_url = (config.get("rest_base_url") or "").strip() or None
+            self._rest_auth = (config.get("rest_auth") or "bearer").strip() or "bearer"
+            self._rest_token = (config.get("rest_token") or "").strip() or None
+            self._rest_user = (config.get("rest_user") or "").strip() or None
+            self._rest_pass = (config.get("rest_pass") or "").strip() or None
 
             # 保存配置（清理 onlyonce）
             if self._onlyonce:
@@ -82,6 +99,13 @@ class VPSMonitor(_PluginBase):
             "notify_all_ok": self._notify_all_ok,
             "insecure_tls": self._insecure_tls,
             "debug_dump": self._debug_dump,
+            # REST
+            "api_mode": self._api_mode,
+            "rest_base_url": self._rest_base_url,
+            "rest_auth": self._rest_auth,
+            "rest_token": self._rest_token,
+            "rest_user": self._rest_user,
+            "rest_pass": self._rest_pass,
         })
 
     @staticmethod
@@ -224,6 +248,30 @@ class VPSMonitor(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
+                                'props': {'cols': 12},
+                                'content': [
+                                    {
+                                        'component': 'VRadioGroup',
+                                        'props': {
+                                            'model': 'api_mode',
+                                            'label': 'API 模式',
+                                            'row': True,
+                                            'mandatory': True
+                                        },
+                                        'content': [
+                                            {'component': 'VRadio', 'props': {'label': 'REST',  'value': 'rest'}},
+                                            {'component': 'VRadio', 'props': {'label': 'WSDL',  'value': 'soap'}}
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
                                 'content': [{
                                     'component': 'VSwitch',
@@ -270,8 +318,84 @@ class VPSMonitor(_PluginBase):
                                         'model': 'wsdl_url',
                                         'label': 'WSDL 地址',
                                         'placeholder': 'https://www.servercontrolpanel.de/WSEndUser?wsdl',
+                                        'show': "{{ api_mode == 'soap' }}"
                                     }
                                 }]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'VTextField',
+                                    'props': {
+                                        'model': 'rest_base_url',
+                                        'label': 'REST 基址（如 https://www.servercontrolpanel.de）',
+                                        'placeholder': 'https://...（无需结尾斜杠）',
+                                        'show': "{{ api_mode == 'rest' }}"
+                                    }
+                                }]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'VSelect',
+                                    'props': {
+                                        'model': 'rest_auth',
+                                        'label': 'REST 认证方式',
+                                        'items': [
+                                            {'title': 'Bearer Token', 'value': 'bearer'},
+                                            {'title': 'Basic Auth',   'value': 'basic'},
+                                            {'title': '无认证',       'value': 'none'}
+                                        ],
+                                        'show': "{{ api_mode == 'rest' }}"
+                                    }
+                                }]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'VTextField',
+                                    'props': {
+                                        'model': 'rest_token',
+                                        'label': 'REST Bearer Token',
+                                        'placeholder': '仅 Bearer 模式需要',
+                                        'show': "{{ api_mode == 'rest' and rest_auth == 'bearer' }}"
+                                    }
+                                }]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'rest_user',
+                                            'label': 'REST 用户名（Basic）',
+                                            'show': "{{ api_mode == 'rest' and rest_auth == 'basic' }}"
+                                        }
+                                    },
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'rest_pass',
+                                            'label': 'REST 密码（Basic）',
+                                            'show': "{{ api_mode == 'rest' and rest_auth == 'basic' }}"
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -372,6 +496,13 @@ class VPSMonitor(_PluginBase):
             "notify_all_ok": self._notify_all_ok,
             "insecure_tls": self._insecure_tls,
             "debug_dump": self._debug_dump,
+            # REST 默认
+            "api_mode": self._api_mode or "rest",
+            "rest_base_url": self._rest_base_url or "",
+            "rest_auth": self._rest_auth,
+            "rest_token": self._rest_token or "",
+            "rest_user": self._rest_user or "",
+            "rest_pass": self._rest_pass or "",
         }
 
     # ============ 内部实现 ============
@@ -391,10 +522,79 @@ class VPSMonitor(_PluginBase):
             self._notify("🔴 VPS 监控错误", f"缺少依赖：{e}", success=False)
             return
 
-        # 输入校验
+        # ========== 尝试 REST 模式 ==========
+        if self._api_mode == "rest":
+            try:
+                throttled_rest: List[str] = []
+                base = (self._rest_base_url or '').rstrip('/')
+                if not base:
+                    raise Exception("未配置 REST 基址")
+
+                s = requests.Session()
+                s.verify = not self._insecure_tls
+                headers = {}
+                auth = None
+                if self._rest_auth == 'bearer' and self._rest_token:
+                    headers['Authorization'] = f"Bearer {self._rest_token}"
+                elif self._rest_auth == 'basic' and self._rest_user and self._rest_pass:
+                    from requests.auth import HTTPBasicAuth
+                    auth = HTTPBasicAuth(self._rest_user, self._rest_pass)
+
+                r = s.get(f"{base}/api/v1/servers", headers=headers or None, auth=auth, timeout=15)
+                r.raise_for_status()
+                servers = r.json()
+                if isinstance(servers, dict) and 'servers' in servers:
+                    servers = servers.get('servers')
+                if not isinstance(servers, list):
+                    raise Exception("REST 返回格式异常：servers 不是列表")
+
+                def first_ipv4(v):
+                    ips = v.get('ips') if isinstance(v.get('ips'), list) else []
+                    for ip in ips:
+                        if ':' not in ip:
+                            return ip
+                    return ips[0] if ips else '未知'
+
+                for sv in servers:
+                    sid = sv.get('id') or sv.get('serverId') or sv.get('uuid') or sv.get('vServerName')
+                    name = sv.get('vServerName') or sv.get('hostname') or sid
+                    if not sid:
+                        continue
+                    r2 = s.get(f"{base}/api/v1/servers/{sid}/interfaces", headers=headers or None, auth=auth, timeout=15)
+                    r2.raise_for_status()
+                    itf_json = r2.json()
+                    if isinstance(itf_json, dict) and 'interfaces' in itf_json:
+                        interfaces = itf_json.get('interfaces')
+                    else:
+                        interfaces = itf_json if isinstance(itf_json, list) else []
+                    is_throttled = False
+                    primary_ip = first_ipv4(sv)
+                    for iface in interfaces:
+                        if iface.get('trafficThrottled') is True:
+                            is_throttled = True
+                            ipv4s = iface.get('ipv4IP') or []
+                            if isinstance(ipv4s, list) and ipv4s:
+                                primary_ip = ipv4s[0]
+                            break
+                    if is_throttled:
+                        throttled_rest.append(f"• {name} ({primary_ip})")
+
+                if throttled_rest:
+                    self._notify("⚠️ VPS 被限速", "以下 VPS 当前被限速：\n" + "\n".join(throttled_rest), success=False)
+                else:
+                    if self._notify_all_ok:
+                        self._notify("🟢 所有 VPS 正常", f"共 {len(servers)} 台 VPS，均未被限速。", success=True)
+                return
+            except Exception as e:
+                logger.error(f"REST 调用失败：{e}")
+                self._notify("🔴 REST 调用失败", str(e), success=False)
+                return
+
+        # ========== SOAP 路径 ==========
+        # SOAP 需要凭据
         if not self._customer or not self._password:
-            logger.warning("VPS 监控未配置 SCP 凭据")
-            self._notify("🔴 VPS 监控未配置", "请填写 SCP 客户号与密码", success=False)
+            logger.warning("VPS 监控未配置 SCP 凭据（SOAP 模式）")
+            self._notify("🔴 VPS 监控未配置", "请填写 SCP 客户号与密码（SOAP）", success=False)
             return
 
         # 自定义 TLS 适配器（可选）
