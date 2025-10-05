@@ -272,7 +272,7 @@ class VPSMonitor(_PluginBase):
             "var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;"
             "(function poll(){if(Date.now()>end){alert('Authorization timeout');return;}"
             "fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc})})"
-            ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}location.reload();return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
+            ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}window.location.hash='#/plugins?tab=installed&id=VPSMonitor';return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
             "}).catch(function(e){alert('Request failed:'+e);});})()"
         )
         # onClick 具体值在下方使用即时拼接 (event)=>{...}
@@ -280,7 +280,7 @@ class VPSMonitor(_PluginBase):
         onclick_revoke_js_script = (
             "(function(){var apiKey=" + js_api_token + ";"
             "fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
-            ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}location.reload();}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
+            ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}window.location.hash='#/plugins?tab=installed&id=VPSMonitor';}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
             ".catch(function(e){alert('Request failed:'+e);});})()"
         )
 
