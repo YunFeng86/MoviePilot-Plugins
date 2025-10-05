@@ -401,8 +401,10 @@ class VPSMonitor(_PluginBase):
         insecure_flag = self._insecure_tls
         class TLSAdapter(HTTPAdapter):
             def __init__(self, insecure: bool = False, *args, **kwargs):
-                super().__init__(*args, **kwargs)
+                # 注意顺序：先设置属性，再调用父类 __init__，
+                # 因为父类 __init__ 会调用 init_poolmanager
                 self._insecure = insecure
+                super().__init__(*args, **kwargs)
 
             def init_poolmanager(self, connections, maxsize, block=False):
                 ctx = ssl.create_default_context()
