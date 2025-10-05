@@ -274,7 +274,7 @@ class VPSMonitor(_PluginBase):
             "(function poll(){if(Date.now()>end){alert('Authorization timeout');return;}"
             "fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc})})"
             ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
-            "});})()"
+            "}).catch(function(e){alert('Request failed:'+e);});})()"
         )
         # onClick 具体值在下方使用即时拼接 (event)=>{...}
         # 撤销授权按钮JS
