@@ -25,7 +25,7 @@ class VPSMonitor(_PluginBase):
     plugin_name = "Netcup VPS 限速监控"
     plugin_desc = "定时检测NC SCP 下 VPS 是否被限速，并通过通知插件发送结果。"
     plugin_icon = "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png"
-    plugin_version = "0.2.1"
+    plugin_version = "0.2.0"
     plugin_author = "YunFeng"
     author_url = "https://github.com/YunFeng86"
     plugin_config_prefix = "vpsmonitor_"
