@@ -586,6 +586,120 @@ class VPSMonitor(_PluginBase):
                 self._notify("🔴 REST 调用失败", str(e), success=False)
                 return
 
+        # ========== SOAP 模式 ==========
+        if self._api_mode == "soap":
+            # SOAP 需要凭据
+            if not self._customer or not self._password:
+                logger.warning("VPS 监控未配置 SCP 凭据（SOAP 模式）")
+                self._notify("🔴 VPS 监控未配置", "请填写 SCP 客户号与密码（SOAP）", success=False)
+                return
+
+            # 自定义 TLS 适配器（可选）
+            insecure_flag = self._insecure_tls
+            class TLSAdapter(HTTPAdapter):
+                def __init__(self, insecure: bool = False, *args, **kwargs):
+                    # 注意顺序：先设置属性，再调用父类 __init__，因其会调用 init_poolmanager
+                    self._insecure = insecure
+                    super().__init__(*args, **kwargs)
+
+                def init_poolmanager(self, connections, maxsize, block=False):
+                    ctx = ssl.create_default_context()
+                    try:
+                        ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+                    except Exception:
+                        pass
+                    if self._insecure:
+                        ctx.check_hostname = False
+                        ctx.verify_mode = ssl.CERT_NONE
+                    self.poolmanager = PoolManager(
+                        num_pools=connections,
+                        maxsize=maxsize,
+                        block=block,
+                        ssl_context=ctx)
+
+            # 构建会话
+            session = Session()
+            session.mount('https://', TLSAdapter(insecure=insecure_flag))
+            session.verify = not insecure_flag
+
+            settings = Settings(strict=False, xml_huge_tree=True)
+            try:
+                client = Client(wsdl=self._wsdl_url, settings=settings, transport=Transport(session=session))
+            except Exception as e:
+                logger.error(f"连接 WSDL 失败：{e}")
+                self._notify("🔴 SCP 连接失败", str(e), success=False)
+                return
+
+            # 拉取列表
+            try:
+                vps_list = client.service.getVServers(loginName=self._customer, password=self._password)
+                if not vps_list:
+                    msg = "📭 未找到任何 VPS。"
+                    logger.info(msg)
+                    self._notify("🟡 无 VPS", msg, success=True)
+                    return
+            except Exception as e:
+                logger.error(f"获取 VPS 列表失败：{e}")
+                self._notify("🔴 获取列表失败", str(e), success=False)
+                return
+
+            throttled: List[str] = []
+
+            def safe_get(obj, attr, default=None):
+                if obj is None:
+                    return default
+                try:
+                    value = getattr(obj, attr, default)
+                    return value if value is not None else default
+                except Exception:
+                    return default
+
+            def dump_info(name: str, info: Any):
+                if not self._debug_dump:
+                    return
+                try:
+                    logger.info(f"VPS[{name}] 返回：{info}")
+                except Exception:
+                    pass
+
+            for vname in vps_list:
+                try:
+                    info = client.service.getVServerInformation(
+                        loginName=self._customer,
+                        password=self._password,
+                        vservername=vname,
+                        language=self._language
+                    )
+                    dump_info(vname, info)
+
+                    ips = safe_get(info, 'ips', [])
+                    primary_ip = ips[0] if ips and len(ips) > 0 else "未知"
+                    interfaces = safe_get(info, 'serverInterfaces', [])
+
+                    is_throttled = False
+                    for iface in interfaces or []:
+                        if hasattr(iface, 'trafficThrottled') and getattr(iface, 'trafficThrottled', False) is True:
+                            is_throttled = True
+                            break
+
+                    logger.info(f"VPS {vname} -> IP: {primary_ip}, 限速: {'是' if is_throttled else '否'}")
+                    if is_throttled:
+                        throttled.append(f"• {vname} ({primary_ip})")
+
+                except Exception as e:
+                    logger.warning(f"获取 {vname} 信息失败：{e}")
+
+            # 通知
+            if throttled:
+                title = "⚠️ VPS 被限速"
+                content = "以下 VPS 当前被限速：\n" + "\n".join(throttled)
+                self._notify(title, content, success=False)
+            else:
+                if self._notify_all_ok:
+                    title = "🟢 所有 VPS 正常"
+                    content = f"共 {len(vps_list)} 台 VPS，均未被限速。"
+                    self._notify(title, content, success=True)
+
     def start_device_flow(self):
         """生成设备码，返回带 user_code 的验证链接"""
         try:
@@ -661,120 +775,6 @@ class VPSMonitor(_PluginBase):
             return {'code': 200, 'message': 'revoked'}
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
-
-        # ========== SOAP 路径 ==========
-        # SOAP 需要凭据
-        if not self._customer or not self._password:
-            logger.warning("VPS 监控未配置 SCP 凭据（SOAP 模式）")
-            self._notify("🔴 VPS 监控未配置", "请填写 SCP 客户号与密码（SOAP）", success=False)
-            return
-
-        # 自定义 TLS 适配器（可选）
-        insecure_flag = self._insecure_tls
-        class TLSAdapter(HTTPAdapter):
-            def __init__(self, insecure: bool = False, *args, **kwargs):
-                # 注意顺序：先设置属性，再调用父类 __init__，
-                # 因为父类 __init__ 会调用 init_poolmanager
-                self._insecure = insecure
-                super().__init__(*args, **kwargs)
-
-            def init_poolmanager(self, connections, maxsize, block=False):
-                ctx = ssl.create_default_context()
-                try:
-                    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-                except Exception:
-                    pass
-                if self._insecure:
-                    ctx.check_hostname = False
-                    ctx.verify_mode = ssl.CERT_NONE
-                self.poolmanager = PoolManager(
-                    num_pools=connections,
-                    maxsize=maxsize,
-                    block=block,
-                    ssl_context=ctx)
-
-        # 构建会话
-        session = Session()
-        session.mount('https://', TLSAdapter(insecure=insecure_flag))
-        session.verify = not insecure_flag
-
-        settings = Settings(strict=False, xml_huge_tree=True)
-        try:
-            client = Client(wsdl=self._wsdl_url, settings=settings, transport=Transport(session=session))
-        except Exception as e:
-            logger.error(f"连接 WSDL 失败：{e}")
-            self._notify("🔴 SCP 连接失败", str(e), success=False)
-            return
-
-        # 拉取列表
-        try:
-            vps_list = client.service.getVServers(loginName=self._customer, password=self._password)
-            if not vps_list:
-                msg = "📭 未找到任何 VPS。"
-                logger.info(msg)
-                self._notify("🟡 无 VPS", msg, success=True)
-                return
-        except Exception as e:
-            logger.error(f"获取 VPS 列表失败：{e}")
-            self._notify("🔴 获取列表失败", str(e), success=False)
-            return
-
-        throttled: List[str] = []
-
-        def safe_get(obj, attr, default=None):
-            if obj is None:
-                return default
-            try:
-                value = getattr(obj, attr, default)
-                return value if value is not None else default
-            except Exception:
-                return default
-
-        def dump_info(name: str, info: Any):
-            if not self._debug_dump:
-                return
-            try:
-                logger.info(f"VPS[{name}] 返回：{info}")
-            except Exception:
-                pass
-
-        for vname in vps_list:
-            try:
-                info = client.service.getVServerInformation(
-                    loginName=self._customer,
-                    password=self._password,
-                    vservername=vname,
-                    language=self._language
-                )
-                dump_info(vname, info)
-
-                ips = safe_get(info, 'ips', [])
-                primary_ip = ips[0] if ips and len(ips) > 0 else "未知"
-                interfaces = safe_get(info, 'serverInterfaces', [])
-
-                is_throttled = False
-                for iface in interfaces or []:
-                    if hasattr(iface, 'trafficThrottled') and getattr(iface, 'trafficThrottled', False) is True:
-                        is_throttled = True
-                        break
-
-                logger.info(f"VPS {vname} -> IP: {primary_ip}, 限速: {'是' if is_throttled else '否'}")
-                if is_throttled:
-                    throttled.append(f"• {vname} ({primary_ip})")
-
-            except Exception as e:
-                logger.warning(f"获取 {vname} 信息失败：{e}")
-
-        # 通知
-        if throttled:
-            title = "⚠️ VPS 被限速"
-            content = "以下 VPS 当前被限速：\n" + "\n".join(throttled)
-            self._notify(title, content, success=False)
-        else:
-            if self._notify_all_ok:
-                title = "🟢 所有 VPS 正常"
-                content = f"共 {len(vps_list)} 台 VPS，均未被限速。"
-                self._notify(title, content, success=True)
 
     def _notify(self, title: str, content: str, success: bool = True):
         try:
