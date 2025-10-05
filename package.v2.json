@@ -13,10 +13,10 @@
   },
   "VPSMonitor": {
     "name": "Netcup VPS 限速监控",
-    "description": "定时检测NC SCP 下 VPS 是否被限速，并通过通知插件发送结果。支持 REST/WSDL（自动回退）",
+    "description": "定时检测NC SCP 下 VPS 是否被限速，并通过通知发送结果。支持 REST/WSDL 接口。",
     "labels": "VPS,监控,通知",
     "version": "0.2.0",
-    "icon": "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png",
+    "icon": "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/Netcup_A.png",
     "author": "YunFeng",
     "level": 1,
     "history": {
