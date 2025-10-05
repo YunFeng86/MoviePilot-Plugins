@@ -55,7 +55,8 @@ class VPSMonitor(_PluginBase):
             self._wsdl_url = config.get("wsdl_url") or self._wsdl_url
             self._customer = config.get("customer")
             self._password = config.get("password")
-            self._language = config.get("language") or self._language
+            # 接口语言写死为 en（不暴露到配置）
+            self._language = "en"
             self._notify_all_ok = bool(config.get("notify_all_ok", True))
             self._insecure_tls = bool(config.get("insecure_tls", False))
             self._debug_dump = bool(config.get("debug_dump", False))
@@ -361,6 +362,7 @@ class VPSMonitor(_PluginBase):
                                     'props': {
                                         'model': 'customer',
                                         'label': 'SCP 客户号',
+                                        'show': "{{ api_mode == 'soap' }}"
                                     }
                                 }]
                             },
@@ -372,6 +374,7 @@ class VPSMonitor(_PluginBase):
                                     'props': {
                                         'model': 'password',
                                         'label': 'SCP 密码',
+                                        'show': "{{ api_mode == 'soap' }}"
                                     }
                                 }]
                             }
@@ -383,18 +386,6 @@ class VPSMonitor(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'language',
-                                        'label': '接口语言（en/de/...）',
-                                        'placeholder': 'en',
-                                    }
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
                                 'content': [
                                     {
                                         'component': 'VSwitch',
@@ -402,7 +393,7 @@ class VPSMonitor(_PluginBase):
                                             'model': 'notify_all_ok',
                                             'label': '发送“全部正常”通知',
                                         }
-                                    },
+                                    }
                                 ]
                             }
                         ]
@@ -443,7 +434,8 @@ class VPSMonitor(_PluginBase):
             "wsdl_url": self._wsdl_url,
             "customer": self._customer or "",
             "password": self._password or "",
-            "language": self._language,
+            # 语言固定为 en
+            "language": "en",
             "notify_all_ok": self._notify_all_ok,
             "insecure_tls": self._insecure_tls,
             "debug_dump": self._debug_dump,
