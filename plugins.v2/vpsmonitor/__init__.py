@@ -240,15 +240,6 @@ class VPSMonitor(_PluginBase):
                                                     ]}
                                                 ]
                                             },
-                                            {
-                                                'component': 'VListItem',
-                                                'content': [
-                                                    {'component': 'VListItemTitle', 'content': [
-                                                        {'component': 'strong', 'text': '发送“全部正常”通知：'},
-                                                        {'component': 'span', 'text': notify_ok_text}
-                                                    ]}
-                                                ]
-                                            }
                                         ]
                                     }
                                 ]
@@ -344,9 +335,32 @@ class VPSMonitor(_PluginBase):
                                     'props': {
                                         'model': 'cron',
                                         'label': '执行周期',
-                                        'placeholder': '5位cron表达式，留空自动'
+                                        'placeholder': '5位cron表达式，留空不执行'
                                     }
                                 }]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'model': 'notify_all_ok',
+                                            'label': '通知策略',
+                                            'items': [
+                                                {'title': '仅发送报错时通知', 'value': False},
+                                                {'title': '即使正常也通知', 'value': True}
+                                            ],
+                                            'clearable': False
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -414,25 +428,6 @@ class VPSMonitor(_PluginBase):
                                     'text': '登录 Netcup SCP 账号并授权本应用，授权后将自动保存令牌；可点击“取消授权”撤销。',
                                     'show': "{{ api_mode == 'rest' }}"
                                 }]
-                            }
-                        ]
-                    },
-                    
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify_all_ok',
-                                            'label': '发送“全部正常”通知',
-                                        }
-                                    }
-                                ]
                             }
                         ]
                     },
