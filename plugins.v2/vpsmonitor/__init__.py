@@ -46,7 +46,9 @@ class VPSMonitor(_PluginBase):
     # REST 配置
     _api_mode: str = "rest"            # rest/soap
     _rest_base_url: Optional[str] = None
-    _rest_token: Optional[str] = None     # Bearer Access Token（必填）
+    _rest_access_token: Optional[str] = None   # Bearer Access Token（存储）
+    _rest_refresh_token: Optional[str] = None  # Refresh Token（存储）
+    _rest_token_expires_at: Optional[int] = None  # 过期时间戳（秒）
 
     def init_plugin(self, config: Optional[dict] = None):
         if config:
@@ -68,7 +70,9 @@ class VPSMonitor(_PluginBase):
             if self._api_mode not in ("rest", "soap"):
                 self._api_mode = "rest"
             self._rest_base_url = (config.get("rest_base_url") or "").strip() or None
-            self._rest_token = (config.get("rest_token") or "").strip() or None
+            self._rest_access_token = (config.get("rest_access_token") or "").strip() or None
+            self._rest_refresh_token = (config.get("rest_refresh_token") or "").strip() or None
+            self._rest_token_expires_at = config.get("rest_token_expires_at")
 
             # 保存配置（清理 onlyonce）
             if self._onlyonce:
@@ -99,7 +103,9 @@ class VPSMonitor(_PluginBase):
             # REST
             "api_mode": self._api_mode,
             "rest_base_url": self._rest_base_url,
-            "rest_token": self._rest_token,
+            "rest_access_token": self._rest_access_token,
+            "rest_refresh_token": self._rest_refresh_token,
+            "rest_token_expires_at": self._rest_token_expires_at,
         })
 
     @staticmethod
@@ -107,13 +113,29 @@ class VPSMonitor(_PluginBase):
         return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        return [{
-            "path": "/start_device_flow",
-            "endpoint": self.start_device_flow,
-            "methods": ["POST"],
-            "summary": "生成设备码并返回验证链接",
-            "description": "调用 SCP OpenID 设备码接口，返回 verification_uri_complete 与 user_code"
-        }]
+        return [
+            {
+                "path": "/start_device_flow",
+                "endpoint": self.start_device_flow,
+                "methods": ["POST"],
+                "summary": "生成设备码并返回验证链接",
+                "description": "调用 SCP OpenID 设备码接口，返回 verification_uri_complete 与 user_code"
+            },
+            {
+                "path": "/poll_device_token",
+                "endpoint": self.poll_device_token,
+                "methods": ["POST"],
+                "summary": "根据 device_code 轮询获取访问令牌",
+                "description": "授权后获取 access_token/refresh_token 并保存"
+            },
+            {
+                "path": "/revoke_device_token",
+                "endpoint": self.revoke_device_token,
+                "methods": ["POST"],
+                "summary": "撤销刷新令牌并清除授权",
+                "description": "调用 revoke 接口，清空本地令牌"
+            }
+        ]
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -239,16 +261,28 @@ class VPSMonitor(_PluginBase):
         ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        # 构造获取验证链接按钮的 onclick JS
+        # 构造获取验证链接/撤销授权按钮的 onclick JS
         import json as _json
         js_api_token = _json.dumps(settings.API_TOKEN)
-        # 使用单行纯ASCII JS，避免前端 eval 报错
-        onclick_js = (
-            "(function(){var apiKey=" + js_api_token + ";var url='/api/v1/plugin/VPSMonitor/start_device_flow?apikey=' + encodeURIComponent(apiKey);"
-            "fetch(url,{method:'POST'}).then(function(res){return res.json()}).then(function(ret){"
-            "if(ret&&ret.code===200&&ret.data){alert('已生成设备码，用户代码：'+(ret.data.user_code||''));"
-            "if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}}"
-            "else{alert('生成设备码失败：'+(ret&&ret.message?ret.message:'未知错误'));}}).catch(function(e){alert('请求失败：'+e);});})()"
+        # 单行ASCII，开始设备码并轮询令牌
+        onclick_get_js = (
+            "(function(){var apiKey=" + js_api_token + ";"
+            "fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
+            ".then(function(r){return r.json()}).then(function(ret){if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}"
+            "// no user_code alert"
+            "if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}"
+            "var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;"
+            "(function poll(){if(Date.now()>end){alert('Authorization timeout');return;}"
+            "fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc})})"
+            ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
+            "});})()"
+        )
+        # 撤销授权按钮JS
+        onclick_revoke_js = (
+            "(function(){var apiKey=" + js_api_token + ";"
+            "fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
+            ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
+            ".catch(function(e){alert('Request failed:'+e);});})()"
         )
 
         return [
@@ -284,10 +318,11 @@ class VPSMonitor(_PluginBase):
                                         'color': 'primary',
                                         'variant': 'elevated',
                                         'class': 'mt-2',
-                                        'onclick': onclick_js,
+                                        'onclick': (onclick_revoke_js if (self._api_mode == 'rest' and self._rest_access_token) else onclick_get_js),
+                                        'id': 'vpsmonitor-auth-btn',
                                         'show': "{{ api_mode == 'rest' }}"
                                     },
-                                    'text': '获取验证链接'
+                                    'text': ('取消授权' if (self._api_mode == 'rest' and self._rest_access_token) else '获取验证链接')
                                 }]
                             }
                         ]
@@ -465,7 +500,7 @@ class VPSMonitor(_PluginBase):
             # REST 默认
             "api_mode": self._api_mode or "rest",
             "rest_base_url": "",
-            "rest_token": self._rest_token or "",
+            "rest_access_token": self._rest_access_token or "",
         }
 
     # ============ 内部实现 ============
@@ -497,9 +532,9 @@ class VPSMonitor(_PluginBase):
                 s.verify = not self._insecure_tls
                 headers = {}
                 auth = None
-                if not self._rest_token:
+                if not self._rest_access_token:
                     raise Exception("未配置 REST Access Token (Bearer)")
-                headers['Authorization'] = f"Bearer {self._rest_token}"
+                headers['Authorization'] = f"Bearer {self._rest_access_token}"
 
                 r = s.get(f"{base}/api/v1/servers", headers=headers, timeout=15)
                 r.raise_for_status()
@@ -573,6 +608,57 @@ class VPSMonitor(_PluginBase):
                     'interval': data.get('interval')
                 }
             }
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
+
+    def poll_device_token(self, device_code: dict = None):
+        """轮询获取设备码令牌"""
+        try:
+            import requests, time
+            req = device_code or {}
+            dc = req.get('device_code') if isinstance(req, dict) else None
+            if not dc:
+                from fastapi import Request
+                try:
+                    # 适配FastAPI传参
+                    dc = Request.scope.get('query_string')
+                except Exception:
+                    pass
+            resp = requests.post(
+                'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/token',
+                data={
+                    'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+                    'device_code': dc,
+                    'client_id': 'scp'
+                }, timeout=15
+            )
+            if resp.status_code != 200:
+                return {'code': 202, 'message': resp.text}
+            data = resp.json() or {}
+            self._rest_access_token = data.get('access_token')
+            self._rest_refresh_token = data.get('refresh_token')
+            expires_in = data.get('expires_in') or 300
+            import time as _t
+            self._rest_token_expires_at = int(_t.time()) + int(expires_in)
+            self.__update_config()
+            return {'code': 200, 'message': 'ok'}
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
+
+    def revoke_device_token(self):
+        """撤销令牌并清除本地"""
+        try:
+            import requests
+            if self._rest_refresh_token:
+                requests.post(
+                    'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/revoke',
+                    data={'client_id': 'scp', 'token': self._rest_refresh_token, 'token_type_hint': 'refresh_token'}, timeout=15
+                )
+            self._rest_access_token = None
+            self._rest_refresh_token = None
+            self._rest_token_expires_at = None
+            self.__update_config()
+            return {'code': 200, 'message': 'revoked'}
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
