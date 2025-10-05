@@ -553,7 +553,7 @@ class VPSMonitor(_PluginBase):
                     r2.raise_for_status()
                     itf_json = r2.json()
                     if isinstance(itf_json, dict) and 'interfaces' in itf_json:
-                        interfaces = itf_json.get('interfaces')
+                        interfaces = itf_json.get('interfaces') or []
                     else:
                         interfaces = itf_json if isinstance(itf_json, list) else []
                     is_throttled = False
@@ -718,7 +718,7 @@ class VPSMonitor(_PluginBase):
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
-    def poll_device_token(self, device_code: dict = None):
+    def poll_device_token(self, device_code: Optional[dict] = None):
         """轮询获取设备码令牌"""
         try:
             import requests, time
@@ -728,7 +728,7 @@ class VPSMonitor(_PluginBase):
                 from fastapi import Request
                 try:
                     # 适配FastAPI传参
-                    dc = Request.scope.get('query_string')
+                    dc = Request and hasattr(Request,'scope') and isinstance(Request.scope, dict) and Request.scope.get('query_string')  # type: ignore[attr-defined]
                 except Exception:
                     pass
             resp = requests.post(
