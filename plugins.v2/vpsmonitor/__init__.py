@@ -171,7 +171,6 @@ class VPSMonitor(_PluginBase):
         language_text = self._language or "未配置"
         insecure_text = "已开启" if self._insecure_tls else "未开启"
         notify_ok_text = "已开启" if self._notify_all_ok else "未开启"
-
         return [
             {
                 'component': 'div',
@@ -265,7 +264,7 @@ class VPSMonitor(_PluginBase):
         import json as _json
         js_api_token = _json.dumps(settings.API_TOKEN)
         # 单行ASCII，开始设备码并轮询令牌
-        onclick_get_js = (
+        onclick_get_js_script = (
             "(function(){var apiKey=" + js_api_token + ";"
             "fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
             ".then(function(r){return r.json()}).then(function(ret){if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}"
@@ -277,8 +276,9 @@ class VPSMonitor(_PluginBase):
             ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
             "});})()"
         )
+        # onClick 具体值在下方使用即时拼接 (event)=>{...}
         # 撤销授权按钮JS
-        onclick_revoke_js = (
+        onclick_revoke_js_script = (
             "(function(){var apiKey=" + js_api_token + ";"
             "fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
             ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
@@ -318,7 +318,7 @@ class VPSMonitor(_PluginBase):
                                         'color': 'primary',
                                         'variant': 'elevated',
                                         'class': 'mt-2',
-                                        'onclick': (onclick_revoke_js if (self._api_mode == 'rest' and self._rest_access_token) else onclick_get_js),
+                                        'onClick': ("(event)=>{" + onclick_revoke_js_script + "}" if (self._api_mode == 'rest' and self._rest_access_token) else "(event)=>{" + onclick_get_js_script + "}"),
                                         'id': 'vpsmonitor-auth-btn',
                                         'show': "{{ api_mode == 'rest' }}"
                                     },
@@ -427,7 +427,7 @@ class VPSMonitor(_PluginBase):
                                 'content': [{
                                     'component': 'VTextField',
                                     'props': {
-                                        'model': 'rest_token',
+                                        'model': 'rest_access_token',
                                         'label': 'REST Access Token (Bearer)',
                                         'placeholder': '在上方文档说明中通过设备码流程获取的 access_token',
                                         'show': "{{ api_mode == 'rest' }}"
