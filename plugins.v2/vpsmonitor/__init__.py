@@ -52,7 +52,8 @@ class VPSMonitor(_PluginBase):
             self._enabled = config.get("enabled", False)
             self._cron = (config.get("cron") or "").strip() or None
             self._onlyonce = config.get("onlyonce", False)
-            self._wsdl_url = config.get("wsdl_url") or self._wsdl_url
+            # WSDL 地址固定为默认值，不从配置覆盖
+            self._wsdl_url = self._wsdl_url
             self._customer = config.get("customer")
             self._password = config.get("password")
             # 接口语言写死为 en（不暴露到配置）
@@ -305,9 +306,20 @@ class VPSMonitor(_PluginBase):
                                 'content': [{
                                     'component': 'VTextField',
                                     'props': {
-                                        'model': 'wsdl_url',
-                                        'label': 'WSDL 地址',
-                                        'placeholder': 'https://www.servercontrolpanel.de/WSEndUser?wsdl',
+                                        'model': 'customer',
+                                        'label': 'SCP 客户号',
+                                        'show': "{{ api_mode == 'soap' }}"
+                                    }
+                                }]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {'cols': 12, 'md': 6},
+                                'content': [{
+                                    'component': 'VTextField',
+                                    'props': {
+                                        'model': 'password',
+                                        'label': 'SCP 密码',
                                         'show': "{{ api_mode == 'soap' }}"
                                     }
                                 }]
@@ -351,35 +363,7 @@ class VPSMonitor(_PluginBase):
                             
                         ]
                     },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'customer',
-                                        'label': 'SCP 客户号',
-                                        'show': "{{ api_mode == 'soap' }}"
-                                    }
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 6},
-                                'content': [{
-                                    'component': 'VTextField',
-                                    'props': {
-                                        'model': 'password',
-                                        'label': 'SCP 密码',
-                                        'show': "{{ api_mode == 'soap' }}"
-                                    }
-                                }]
-                            }
-                        ]
-                    },
+                    
                     {
                         'component': 'VRow',
                         'content': [
