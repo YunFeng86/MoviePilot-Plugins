@@ -13,17 +13,14 @@
   },
   "VPSMonitor": {
     "name": "Netcup VPS 限速监控",
-    "description": "定时检测 SCP 下 VPS 是否被限速，并通过通知插件发送结果。支持 REST/WSDL（REST 固定 Bearer，带设备码授权引导）",
+    "description": "定时检测NC SCP 下 VPS 是否被限速，并通过通知插件发送结果。支持 REST/WSDL（自动回退）",
     "labels": "VPS,监控,通知",
-    "version": "0.2.2",
+    "version": "0.2.0",
     "icon": "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/OneBot_A.png",
     "author": "YunFeng",
     "level": 1,
     "history": {
       "v0.1.0": "初始版本：支持限速检测与通知，Cron 定时与立即运行一次",
-      "v0.2.0": "新增 REST 接口支持（可选择 AUTO/REST/WSDL），REST 基址与认证可配置",
-      "v0.2.1": "去掉 AUTO，仅 REST/WSDL 二选一，修复表单显示逻辑",
-      "v0.2.2": "REST 固定为 Bearer + 固定基址，增加“获取验证链接”按钮（设备码授权）"
-    }
+      "v0.2.0": "新增 REST 接口支持（可选择 AUTO/REST/WSDL），REST 基址与认证可配置"
   }
 }
