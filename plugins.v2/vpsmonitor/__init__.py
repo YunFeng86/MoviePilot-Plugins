@@ -396,6 +396,7 @@ class VPSMonitor(_PluginBase):
                     
                     {
                         'component': 'VRow',
+                        'props': {'show': "{{ api_mode == 'rest' }}"},
                         'content': [
                             {
                                 'component': 'VCol',
@@ -407,8 +408,7 @@ class VPSMonitor(_PluginBase):
                                         'variant': 'elevated',
                                         'class': 'mt-2',
                                         'onClick': ("function(event){" + onclick_revoke_js_script + "}" if (self._api_mode == 'rest' and self._rest_access_token) else "function(event){" + onclick_get_js_script + "}"),
-                                        'id': 'vpsmonitor-auth-btn',
-                                        'show': "{{ api_mode == 'rest' }}"
+                                        'id': 'vpsmonitor-auth-btn'
                                     },
                                     'text': ('取消授权' if (self._api_mode == 'rest' and self._rest_access_token) else '获取验证链接')
                                 }]
@@ -425,8 +425,7 @@ class VPSMonitor(_PluginBase):
                                         'border': 'start',
                                         'color': 'primary'
                                     },
-                                    'text': '登录 Netcup SCP 账号并授权本应用，授权后将自动保存令牌；可点击“取消授权”撤销。',
-                                    'show': "{{ api_mode == 'rest' }}"
+                                    'text': '登录 Netcup SCP 账号并授权本应用，授权后将自动保存令牌；可点击“取消授权”撤销。'
                                 }]
                             }
                         ]
