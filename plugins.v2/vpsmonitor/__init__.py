@@ -49,6 +49,8 @@ class VPSMonitor(_PluginBase):
     _rest_access_token: Optional[str] = None   # Bearer Access Token（存储）
     _rest_refresh_token: Optional[str] = None  # Refresh Token（存储）
     _rest_token_expires_at: Optional[int] = None  # 过期时间戳（秒）
+    # 多账户（每条：id/name/enabled/api_mode/rest_* 或 customer/password）
+    _accounts: List[Dict[str, Any]] = []
 
     def init_plugin(self, config: Optional[dict] = None):
         if config:
@@ -73,6 +75,10 @@ class VPSMonitor(_PluginBase):
             self._rest_access_token = (config.get("rest_access_token") or "").strip() or None
             self._rest_refresh_token = (config.get("rest_refresh_token") or "").strip() or None
             self._rest_token_expires_at = config.get("rest_token_expires_at")
+            # 多账户
+            accs = config.get("accounts")
+            if isinstance(accs, list):
+                self._accounts = accs
 
             # 保存配置（清理 onlyonce）
             if self._onlyonce:
@@ -106,6 +112,8 @@ class VPSMonitor(_PluginBase):
             "rest_access_token": self._rest_access_token,
             "rest_refresh_token": self._rest_refresh_token,
             "rest_token_expires_at": self._rest_token_expires_at,
+            # 多账户
+            "accounts": self._accounts,
         })
 
     @staticmethod
@@ -134,6 +142,27 @@ class VPSMonitor(_PluginBase):
                 "methods": ["POST"],
                 "summary": "撤销刷新令牌并清除授权",
                 "description": "调用 revoke 接口，清空本地令牌"
+            },
+            {
+                "path": "/account_add",
+                "endpoint": self.account_add,
+                "methods": ["POST"],
+                "summary": "新增账户",
+                "description": "新增一个待授权账户（name）"
+            },
+            {
+                "path": "/account_remove",
+                "endpoint": self.account_remove,
+                "methods": ["POST"],
+                "summary": "删除账户",
+                "description": "根据 id 删除账户"
+            },
+            {
+                "path": "/account_update",
+                "endpoint": self.account_update,
+                "methods": ["POST"],
+                "summary": "更新账户",
+                "description": "更新账户名称/启用/模式/凭据等"
             }
         ]
 
@@ -224,29 +253,8 @@ class VPSMonitor(_PluginBase):
         ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        # 构造获取验证链接/撤销授权按钮的 onclick JS
         import json as _json
         js_api_token = _json.dumps(settings.API_TOKEN)
-        # 单行ASCII，开始设备码并轮询令牌
-        onclick_get_js_script = (
-            "(function(){var apiKey=" + js_api_token + ";"
-            "fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
-            ".then(function(r){return r.json()}).then(function(ret){if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}"
-            "if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}"
-            "var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;"
-            "(function poll(){if(Date.now()>end){alert('Authorization timeout');return;}"
-            "fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc})})"
-            ".then(function(r){return r.json()}).then(function(p){if(p&&p.code===200){alert('Authorized. Tokens saved.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='取消授权';}window.location.hash='#/plugins?tab=installed&id=VPSMonitor';return;}setTimeout(poll,iv);}).catch(function(e){setTimeout(poll,iv);});})();"
-            "}).catch(function(e){alert('Request failed:'+e);});})()"
-        )
-        # onClick 具体值在下方使用即时拼接 (event)=>{...}
-        # 撤销授权按钮JS
-        onclick_revoke_js_script = (
-            "(function(){var apiKey=" + js_api_token + ";"
-            "fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST'})"
-            ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}window.location.hash='#/plugins?tab=installed&id=VPSMonitor';}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
-            ".catch(function(e){alert('Request failed:'+e);});})()"
-        )
 
         return [
             {
@@ -448,6 +456,7 @@ class VPSMonitor(_PluginBase):
             "api_mode": self._api_mode or "rest",
             "rest_base_url": "",
             "rest_access_token": self._rest_access_token or "",
+            "acct_expanded": None,
         }
 
     # ============ 内部实现 ============
