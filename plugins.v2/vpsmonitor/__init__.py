@@ -278,7 +278,7 @@ class VPSMonitor(_PluginBase):
             ".catch(function(e){alert('Request failed:'+e);});})()"
         )
 
-        # 账户行与编辑弹窗（使用 window.$mp 助手）
+        # 账户行与编辑弹窗（直接读写模型变量，无需全局助手）
         account_items: List[dict] = []
         for acc in (self._accounts or []):
             acc_id = str(acc.get('id') or '')
@@ -286,13 +286,15 @@ class VPSMonitor(_PluginBase):
             api_mode = (acc.get('api_mode') or 'rest')
             authorized = True if acc.get('rest_access_token') else False
             toggle_js = (
-                "function(){try{if(window.$mp){var cur=!!window.$mp.getModel('enable_" + acc_id + "');var nv=!cur;window.$mp.setModel('enable_" + acc_id + "',nv);window.$mp.callApi('/account_update',{id:'" + acc_id + "',enabled:nv}).then(r=>r.json()).then(j=>{if(!(j&&j.code===200)){alert('更新失败:'+((j&&j.message)||''));location.reload();}}).catch(e=>{alert(e);location.reload();});}else{var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_update?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "',enabled:!" + ('true' if bool(acc.get('enabled')) else 'false') + "})}).then(r=>r.json()).then(j=>{if(!(j&&j.code===200)){alert('更新失败');}location.reload();});}}catch(e){alert(e);}}"
+                "() => { try { var nv = !enable_" + acc_id + "; enable_" + acc_id + " = nv; var apiKey=" + js_api_token + ";"
+                " fetch('/api/v1/plugin/VPSMonitor/account_update?apikey=' + encodeURIComponent(apiKey), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id:'" + acc_id + "', enabled: nv }) })"
+                ".then(r=>r.json()).then(j=>{ if(!(j&&j.code===200)){ alert('更新失败:' + ((j&&j.message)||'')); enable_" + acc_id + " = !nv; } }).catch(e=>{ alert(e); enable_" + acc_id + " = !nv; }); } catch(e) { alert(e); } }"
             )
             open_edit_js = (
-                "function(){if(window.$mp){window.$mp.mergeModel({edit_open:true,edit_id:'" + acc_id + "',edit_name:" + _json.dumps(acc_name) + ",edit_enabled:" + ('true' if bool(acc.get('enabled', True)) else 'false') + ",edit_mode:'" + (api_mode or 'rest') + "',edit_customer:" + _json.dumps(str(acc.get('customer') or '')) + ",edit_password:''});}else{alert('缺少$mp助手');}}"
+                "() => { edit_id='" + acc_id + "'; edit_name=" + _json.dumps(acc_name) + "; edit_enabled=" + ('true' if bool(acc.get('enabled', True)) else 'false') + "; edit_mode='" + (api_mode or 'rest') + "'; edit_customer=" + _json.dumps(str(acc.get('customer') or '')) + "; edit_password=''; edit_open=true; }"
             )
             delete_js = (
-                "function(){if(!confirm('确认删除该账户？'))return; if(window.$mp){window.$mp.callApi('/account_remove',{id:'" + acc_id + "'}).then(r=>r.json()).then(j=>{if(j&&j.code===200){location.reload();}else{alert('删除失败:'+((j&&j.message)||''));}}).catch(e=>alert(e));}else{var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_remove?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "'})}).then(r=>r.json()).then(j=>{if(j&&j.code===200){location.reload();}else{alert('删除失败');}});} }"
+                "() => { if(!confirm('确认删除该账户？')) return; var apiKey=" + js_api_token + "; fetch('/api/v1/plugin/VPSMonitor/account_remove?apikey=' + encodeURIComponent(apiKey), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id:'" + acc_id + "' }) }).then(r=>r.json()).then(j=>{ if(j&&j.code===200){ location.reload(); } else { alert('删除失败:' + ((j&&j.message)||'')); } }).catch(e=>alert(e)); }"
             )
             account_items.append({
                 'component': 'VListItem',
@@ -326,20 +328,20 @@ class VPSMonitor(_PluginBase):
                         {'component': 'VRow', 'props': {'show': "{{ edit_mode == 'rest' }}"}, 'content': [
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{
                                 'component': 'VBtn', 'props': {'color': 'primary', 'variant': 'elevated', 'onClick': (
-                                    "async function(){try{var id=window.$mp&&window.$mp.getModel('edit_id');if(!id){alert('请先保存账户后再授权');return;}var apiKey=" + js_api_token + ";var start=window.$mp?window.$mp.callApi('/start_device_flow'):fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{method:'POST'});var resp=await start;var ret=await resp.json();if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;(function poll(){if(Date.now()>end){alert('授权超时');return;}var p=window.$mp?window.$mp.callApi('/poll_device_token',{device_code:dc,account_id:id}):fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc,account_id:id})});p.then(r=>r.json()).then(function(j){if(j&&j.code===200){alert('授权成功');location.reload();return;}setTimeout(poll,iv);}).catch(function(){setTimeout(poll,iv);});})();}catch(e){alert(e);}}"
+                                    "async () => { try { if(!edit_id){ alert('请先保存账户后再授权'); return; } var apiKey=" + js_api_token + "; var resp = await fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey=' + encodeURIComponent(apiKey), { method:'POST' }); var ret = await resp.json(); if(!(ret && ret.code===200 && ret.data)){ alert('start failed:' + ((ret&&ret.message)||'')); return; } if(ret.data.verification_uri_complete){ window.open(ret.data.verification_uri_complete, '_blank'); } var dc = ret.data.device_code; var end = Date.now() + ((ret.data.expires_in || 600) * 1000); var iv = (ret.data.interval || 5) * 1000; (function poll(){ if(Date.now() > end){ alert('授权超时'); return; } fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey=' + encodeURIComponent(apiKey), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ device_code: dc, account_id: edit_id }) }).then(r=>r.json()).then(function(j){ if(j && j.code===200){ alert('授权成功'); location.reload(); return; } setTimeout(poll, iv); }).catch(function(){ setTimeout(poll, iv); }); })(); } catch(e){ alert(e); } }"
                                 )}, 'text': '获取验证链接/重新授权'}]},
                             {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{
                                 'component': 'VBtn', 'props': {'color': 'warning', 'variant': 'elevated', 'onClick': (
-                                    "function(){try{var id=window.$mp&&window.$mp.getModel('edit_id');if(!id){return;}var apiKey=" + js_api_token + ";var p=window.$mp?window.$mp.callApi('/revoke_device_token',{account_id:id}):fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:id})});p.then(r=>r.json()).then(function(j){if(j&&j.code===200){alert('已撤销');location.reload();}else{alert('撤销失败:'+((j&&j.message)||''));}}).catch(function(e){alert(e);});}catch(e){alert(e);}}"
+                                    "() => { try { if(!edit_id){ return; } var apiKey=" + js_api_token + "; fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey=' + encodeURIComponent(apiKey), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ account_id: edit_id }) }).then(r=>r.json()).then(function(j){ if(j && j.code===200){ alert('已撤销'); location.reload(); } else { alert('撤销失败:' + ((j&&j.message)||'')); } }).catch(function(e){ alert(e); }); } catch(e){ alert(e); } }"
                                 )}, 'text': '取消授权'}]}
                         ]}
                     ]},
                     {'component': 'VCardActions', 'content': [
                         {'component': 'VSpacer'},
                         {'component': 'VBtn', 'props': {'color': 'primary', 'onClick': (
-                            "async function(){try{if(!window.$mp)return;var id=window.$mp.getModel('edit_id');var body={id:id,name:window.$mp.getModel('edit_name'),enabled:!!window.$mp.getModel('edit_enabled'),api_mode:window.$mp.getModel('edit_mode'),customer:window.$mp.getModel('edit_customer'),password:window.$mp.getModel('edit_password')};if(!id){var r=await window.$mp.callApi('/account_add',{name:body.name});var j=await r.json();if(!(j&&j.code===200&&j.data&&j.data.id)){alert('新增账户失败:'+((j&&j.message)||''));return;}body.id=j.data.id;}var r2=await window.$mp.callApi('/account_update',body);var j2=await r2.json();if(j2&&j2.code===200){alert('已保存');window.$mp.setModel('edit_open',false);location.reload();}else{alert('保存失败:'+((j2&&j2.message)||''));}}catch(e){alert('保存异常:'+e);}}"
+                            "async () => { try { var apiKey=" + js_api_token + "; var body = { id: edit_id, name: edit_name, enabled: !!edit_enabled, api_mode: edit_mode, customer: edit_customer, password: edit_password }; if(!body.name){ alert('请输入账户名称'); return;} if(!edit_id){ var r = await fetch('/api/v1/plugin/VPSMonitor/account_add?apikey=' + encodeURIComponent(apiKey), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: body.name }) }); var j = await r.json(); if(!(j && j.code===200 && j.data && j.data.id)){ alert('新增账户失败:' + ((j&&j.message)||'')); return; } body.id = j.data.id; } var r2 = await fetch('/api/v1/plugin/VPSMonitor/account_update?apikey=' + encodeURIComponent(apiKey), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); var j2 = await r2.json(); if(j2 && j2.code===200){ alert('已保存'); edit_open = false; location.reload(); } else { alert('保存失败:' + ((j2&&j2.message)||'')); } } catch(e){ alert('保存异常:' + e); } }"
                         )}, 'text': '保存'},
-                        {'component': 'VBtn', 'props': {'onClick': "function(){window.$mp&&window.$mp.setModel('edit_open',false);}"}, 'text': '取消'}
+                        {'component': 'VBtn', 'props': {'onClick': "() => { edit_open = false }"}, 'text': '取消'}
                     ]}
                 ]}
             ]
@@ -448,7 +450,7 @@ class VPSMonitor(_PluginBase):
                 'component': 'VRow',
                 'content': [
                     {'component': 'VCol', 'props': {'cols': 12}, 'content': [
-                        {'component': 'VBtn', 'props': {'color': 'primary', 'variant': 'elevated', 'class': 'mr-2', 'onClick': "function(){if(window.$mp){window.$mp.mergeModel({edit_open:true,edit_id:'',edit_name:'',edit_enabled:true,edit_mode:'rest',edit_customer:'',edit_password:''});}else{alert('缺少$mp助手');}}"}, 'text': '添加账户'}
+                        {'component': 'VBtn', 'props': {'color': 'primary', 'variant': 'elevated', 'class': 'mr-2', 'onClick': "function(){try{if(window.$mp){window.$mp.mergeModel({edit_open:true,edit_id:'',edit_name:'',edit_enabled:true,edit_mode:'rest',edit_customer:'',edit_password:''});return;}var name=prompt('账户名称');if(!name)return;var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_add?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(r=>r.json()).then(function(j){if(j&&j.code===200){alert('已添加');location.reload();}else{alert('添加失败:'+((j&&j.message)||''));}}).catch(function(e){alert('请求失败:'+e);});}catch(e){alert(e);}}"}, 'text': '添加账户'}
                     ]}
                 ]
             },
