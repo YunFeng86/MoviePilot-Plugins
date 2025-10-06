@@ -248,6 +248,60 @@ class VPSMonitor(_PluginBase):
             ".catch(function(e){alert('Request failed:'+e);});})()"
         )
 
+        # ===== 账户折叠面板（无弹窗，使用 prompt 修改）=====
+        acc_panels: List[dict] = []
+        for acc in (self._accounts or []):
+            acc_id = str(acc.get('id') or '')
+            acc_name = str(acc.get('name') or '未命名')
+            api_mode = (acc.get('api_mode') or 'rest')
+            authorized = True if acc.get('rest_access_token') else False
+            # 开关与删除
+            toggle_js = (
+                "function(){try{var apiKey=" + js_api_token + ";var nv=!this['enable_" + acc_id + "'];this['enable_" + acc_id + "']=nv;fetch('/api/v1/plugin/VPSMonitor/account_update?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "',enabled:nv})}).then(r=>r.json()).then(j=>{if(!(j&&j.code===200)){alert('更新失败:'+((j&&j.message)||''));this['enable_" + acc_id + "']=!nv;}}).catch(e=>{alert(e);this['enable_" + acc_id + "']=!nv;});}catch(e){alert(e);}}"
+            )
+            delete_js = (
+                "function(){if(!confirm('确认删除该账户？'))return;var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_remove?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "'})}).then(r=>r.json()).then(j=>{if(j&&j.code===200){location.reload();}else{alert('删除失败:'+((j&&j.message)||''));}}).catch(e=>alert(e));}"
+            )
+            # 标题
+            title = {
+                'component': 'VExpansionPanelTitle',
+                'content': [
+                    {'component': 'span', 'props': {'class': 'mr-2'}, 'text': acc_name},
+                    {'component': 'VChip', 'props': {'size': 'x-small', 'class': 'mr-2'}, 'text': (api_mode or 'rest').upper()},
+                    {'component': 'VChip', 'props': {'size': 'x-small', 'class': 'mr-2', 'color': ('success' if authorized else 'warning')}, 'text': ('已授权' if authorized else '未授权')},
+                    {'component': 'VSpacer'},
+                    {'component': 'VSwitch', 'props': {'model': f'enable_{acc_id}', 'inset': True, 'density': 'compact', 'class': 'mr-2', 'onClick': toggle_js}},
+                    {'component': 'VBtn', 'props': {'size': 'small', 'variant': 'text', 'color': 'error', 'onClick': delete_js}, 'text': '删除'}
+                ]
+            }
+            # 内容：重命名/切换模式/设置SOAP/授权
+            rename_js = (
+                "function(){var name=prompt('重命名', '" + acc_name + "');if(name===null)return;var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_update?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "',name:name})}).then(r=>r.json()).then(j=>{if(j&&j.code===200){location.reload();}else{alert('保存失败:'+((j&&j.message)||''));}}).catch(e=>alert(e));}"
+            )
+            mode_js = (
+                "function(){var mode=prompt('API 模式(rest/soap)', '" + (api_mode or 'rest') + "');if(mode===null)return;mode=String(mode||'rest').toLowerCase();if(mode!=='rest'&&mode!=='soap'){alert('无效模式');return;}var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_update?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "',api_mode:mode})}).then(r=>r.json()).then(j=>{if(j&&j.code===200){location.reload();}else{alert('保存失败:'+((j&&j.message)||''));}}).catch(e=>alert(e));}"
+            )
+            soap_js = (
+                "function(){var c=prompt('SCP 客户号', '" + str(acc.get('customer') or '') + "');if(c===null)return;var p=prompt('SCP 密码', '');if(p===null)return;var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_update?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "',customer:c,password:p})}).then(r=>r.json()).then(j=>{if(j&&j.code===200){alert('已保存');}else{alert('保存失败:'+((j&&j.message)||''));}}).catch(e=>alert(e));}"
+            )
+            auth_js = (
+                "async function(){try{var apiKey=" + js_api_token + ";var resp=await fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{method:'POST'});var ret=await resp.json();if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;(function poll(){if(Date.now()>end){alert('授权超时');return;}fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc,account_id:'" + acc_id + "'})}).then(r=>r.json()).then(function(j){if(j&&j.code===200){alert('授权成功');location.reload();return;}setTimeout(poll,iv);}).catch(function(){setTimeout(poll,iv);});})();}catch(e){alert(e);}}"
+            )
+            revoke_js = (
+                "function(){var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:'" + acc_id + "'})}).then(r=>r.json()).then(function(j){if(j&&j.code===200){alert('已撤销');location.reload();}else{alert('撤销失败:'+((j&&j.message)||''));}}).catch(e=>alert(e));}"
+            )
+            text = {
+                'component': 'VExpansionPanelText',
+                'content': [
+                    {'component': 'VBtn', 'props': {'size': 'small', 'class': 'mr-2', 'onClick': rename_js}, 'text': '重命名'},
+                    {'component': 'VBtn', 'props': {'size': 'small', 'class': 'mr-2', 'onClick': mode_js}, 'text': '切换模式'},
+                    {'component': 'VBtn', 'props': {'size': 'small', 'class': 'mr-2', 'onClick': soap_js}, 'text': '设置 SOAP 凭据'},
+                    {'component': 'VBtn', 'props': {'size': 'small', 'class': 'mr-2', 'color': 'primary', 'onClick': auth_js}, 'text': '获取验证链接/重新授权'},
+                    {'component': 'VBtn', 'props': {'size': 'small', 'color': 'warning', 'onClick': revoke_js}, 'text': '取消授权'}
+                ]
+            }
+            acc_panels.append({'component': 'VExpansionPanel', 'props': {'value': acc_id}, 'content': [title, text]})
+
         return [
             {
                 'component': 'VForm',
@@ -429,6 +483,20 @@ class VPSMonitor(_PluginBase):
                                 }]
                             }
                         ]
+                    },
+                    # 账户管理：新增 & 折叠列表
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12}, 'content': [
+                                {'component': 'VBtn', 'props': {'color': 'primary', 'variant': 'elevated', 'onClick': "function(){var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_add?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'新账户'})}).then(r=>r.json()).then(function(j){if(j&&j.code===200){location.reload();}else{alert('新增失败:'+((j&&j.message)||''));}}).catch(function(e){alert(e);});}"}, 'text': '新增账户'}
+                            ]}
+                        ]
+                    },
+                    {
+                        'component': 'VExpansionPanels',
+                        'props': {'model': 'acct_expanded'},
+                        'content': acc_panels
                     }
                 ]
             }
@@ -448,6 +516,8 @@ class VPSMonitor(_PluginBase):
             "api_mode": self._api_mode or "rest",
             "rest_base_url": "",
             "rest_access_token": self._rest_access_token or "",
+            # 折叠面板模型与开关默认
+            "acct_expanded": None,
         }
 
     # ============ 内部实现 ============
