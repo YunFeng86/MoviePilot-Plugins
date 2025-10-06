@@ -241,11 +241,12 @@ class VPSMonitor(_PluginBase):
                                                         {'component': 'span', 'text': cron_text}
                                                     ]}
                                                 ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
+                    }
+                ]
+            },
+            # 账户管理
+        ]
+    }
                         ]
                     }
                 ]
@@ -276,6 +277,73 @@ class VPSMonitor(_PluginBase):
             ".then(function(r){return r.json()}).then(function(ret){if(ret&&ret.code===200){alert('Revoked.');var b=document.getElementById('vpsmonitor-auth-btn');if(b){b.textContent='获取验证链接';}window.location.hash='#/plugins?tab=installed&id=VPSMonitor';}else{alert('Revoke failed:'+((ret&&ret.message)||''));}})"
             ".catch(function(e){alert('Request failed:'+e);});})()"
         )
+
+        # 账户行与编辑弹窗（使用 window.$mp 助手）
+        account_items: List[dict] = []
+        for acc in (self._accounts or []):
+            acc_id = str(acc.get('id') or '')
+            acc_name = str(acc.get('name') or '未命名')
+            api_mode = (acc.get('api_mode') or 'rest')
+            authorized = True if acc.get('rest_access_token') else False
+            toggle_js = (
+                "function(){try{if(window.$mp){var cur=!!window.$mp.getModel('enable_" + acc_id + "');var nv=!cur;window.$mp.setModel('enable_" + acc_id + "',nv);window.$mp.callApi('/account_update',{id:'" + acc_id + "',enabled:nv}).then(r=>r.json()).then(j=>{if(!(j&&j.code===200)){alert('更新失败:'+((j&&j.message)||''));location.reload();}}).catch(e=>{alert(e);location.reload();});}else{var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_update?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "',enabled:!" + ('true' if bool(acc.get('enabled')) else 'false') + "})}).then(r=>r.json()).then(j=>{if(!(j&&j.code===200)){alert('更新失败');}location.reload();});}}catch(e){alert(e);}}"
+            )
+            open_edit_js = (
+                "function(){if(window.$mp){window.$mp.mergeModel({edit_open:true,edit_id:'" + acc_id + "',edit_name:" + _json.dumps(acc_name) + ",edit_enabled:" + ('true' if bool(acc.get('enabled', True)) else 'false') + ",edit_mode:'" + (api_mode or 'rest') + "',edit_customer:" + _json.dumps(str(acc.get('customer') or '')) + ",edit_password:''});}else{alert('缺少$mp助手');}}"
+            )
+            delete_js = (
+                "function(){if(!confirm('确认删除该账户？'))return; if(window.$mp){window.$mp.callApi('/account_remove',{id:'" + acc_id + "'}).then(r=>r.json()).then(j=>{if(j&&j.code===200){location.reload();}else{alert('删除失败:'+((j&&j.message)||''));}}).catch(e=>alert(e));}else{var apiKey=" + js_api_token + ";fetch('/api/v1/plugin/VPSMonitor/account_remove?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'" + acc_id + "'})}).then(r=>r.json()).then(j=>{if(j&&j.code===200){location.reload();}else{alert('删除失败');}});} }"
+            )
+            account_items.append({
+                'component': 'VListItem',
+                'content': [
+                    {'component': 'VListItemTitle', 'content': [
+                        {'component': 'span', 'props': {'class': 'mr-2'}, 'text': acc_name},
+                        {'component': 'VChip', 'props': {'size': 'x-small', 'class': 'mr-2'}, 'text': (api_mode or 'rest').upper()},
+                        {'component': 'VChip', 'props': {'size': 'x-small', 'class': 'mr-2', 'color': ('success' if authorized else 'warning')}, 'text': ('已授权' if authorized else '未授权')},
+                    ]},
+                    {'component': 'VSpacer'},
+                    {'component': 'VSwitch', 'props': {'model': f'enable_{acc_id}', 'inset': True, 'density': 'compact', 'class': 'mr-2', 'onClick': toggle_js}},
+                    {'component': 'VBtn', 'props': {'size': 'small', 'variant': 'text', 'class': 'mr-1', 'onClick': open_edit_js}, 'text': '编辑'},
+                    {'component': 'VBtn', 'props': {'size': 'small', 'variant': 'text', 'color': 'error', 'onClick': delete_js}, 'text': '删除'}
+                ]
+            })
+
+        edit_dialog = {
+            'component': 'VDialog',
+            'props': {'model': 'edit_open', 'width': 600},
+            'content': [
+                {'component': 'VCard', 'content': [
+                    {'component': 'VCardTitle', 'text': '编辑账户'},
+                    {'component': 'VCardText', 'content': [
+                        {'component': 'VTextField', 'props': {'model': 'edit_name', 'label': '账户名称'}},
+                        {'component': 'VSelect', 'props': {'model': 'edit_mode', 'label': 'API 模式', 'items': [{'title': 'REST', 'value': 'rest'}, {'title': 'SOAP', 'value': 'soap'}], 'clearable': False}},
+                        {'component': 'VSwitch', 'props': {'model': 'edit_enabled', 'label': '启用账户'}},
+                        {'component': 'VRow', 'props': {'show': "{{ edit_mode == 'soap' }}"}, 'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VTextField', 'props': {'model': 'edit_customer', 'label': 'SCP 客户号'}}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{'component': 'VTextField', 'props': {'model': 'edit_password', 'label': 'SCP 密码'}}]}
+                        ]},
+                        {'component': 'VRow', 'props': {'show': "{{ edit_mode == 'rest' }}"}, 'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{
+                                'component': 'VBtn', 'props': {'color': 'primary', 'variant': 'elevated', 'onClick': (
+                                    "async function(){try{var id=window.$mp&&window.$mp.getModel('edit_id');if(!id){alert('请先保存账户后再授权');return;}var apiKey=" + js_api_token + ";var start=window.$mp?window.$mp.callApi('/start_device_flow'):fetch('/api/v1/plugin/VPSMonitor/start_device_flow?apikey='+encodeURIComponent(apiKey),{method:'POST'});var resp=await start;var ret=await resp.json();if(!(ret&&ret.code===200&&ret.data)){alert('start failed:'+((ret&&ret.message)||''));return;}if(ret.data.verification_uri_complete){window.open(ret.data.verification_uri_complete,'_blank');}var dc=ret.data.device_code;var end=Date.now()+((ret.data.expires_in||600)*1000);var iv=(ret.data.interval||5)*1000;(function poll(){if(Date.now()>end){alert('授权超时');return;}var p=window.$mp?window.$mp.callApi('/poll_device_token',{device_code:dc,account_id:id}):fetch('/api/v1/plugin/VPSMonitor/poll_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_code:dc,account_id:id})});p.then(r=>r.json()).then(function(j){if(j&&j.code===200){alert('授权成功');location.reload();return;}setTimeout(poll,iv);}).catch(function(){setTimeout(poll,iv);});})();}catch(e){alert(e);}}"
+                                )}, 'text': '获取验证链接/重新授权'}]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [{
+                                'component': 'VBtn', 'props': {'color': 'warning', 'variant': 'elevated', 'onClick': (
+                                    "function(){try{var id=window.$mp&&window.$mp.getModel('edit_id');if(!id){return;}var apiKey=" + js_api_token + ";var p=window.$mp?window.$mp.callApi('/revoke_device_token',{account_id:id}):fetch('/api/v1/plugin/VPSMonitor/revoke_device_token?apikey='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:id})});p.then(r=>r.json()).then(function(j){if(j&&j.code===200){alert('已撤销');location.reload();}else{alert('撤销失败:'+((j&&j.message)||''));}}).catch(function(e){alert(e);});}catch(e){alert(e);}}"
+                                )}, 'text': '取消授权'}]}
+                        ]}
+                    ]},
+                    {'component': 'VCardActions', 'content': [
+                        {'component': 'VSpacer'},
+                        {'component': 'VBtn', 'props': {'color': 'primary', 'onClick': (
+                            "async function(){try{if(!window.$mp)return;var id=window.$mp.getModel('edit_id');var body={id:id,name:window.$mp.getModel('edit_name'),enabled:!!window.$mp.getModel('edit_enabled'),api_mode:window.$mp.getModel('edit_mode'),customer:window.$mp.getModel('edit_customer'),password:window.$mp.getModel('edit_password')};if(!id){var r=await window.$mp.callApi('/account_add',{name:body.name});var j=await r.json();if(!(j&&j.code===200&&j.data&&j.data.id)){alert('新增账户失败:'+((j&&j.message)||''));return;}body.id=j.data.id;}var r2=await window.$mp.callApi('/account_update',body);var j2=await r2.json();if(j2&&j2.code===200){alert('已保存');window.$mp.setModel('edit_open',false);location.reload();}else{alert('保存失败:'+((j2&&j2.message)||''));}}catch(e){alert('保存异常:'+e);}}"
+                        )}, 'text': '保存'},
+                        {'component': 'VBtn', 'props': {'onClick': "function(){window.$mp&&window.$mp.setModel('edit_open',false);}"}, 'text': '取消'}
+                    ]}
+                ]}
+            ]
+        }
 
         return [
             {
@@ -375,8 +443,25 @@ class VPSMonitor(_PluginBase):
                         ]
                     }
                 ]
-            }
-        ], {
+            },
+            {
+                'component': 'VRow',
+                'content': [
+                    {'component': 'VCol', 'props': {'cols': 12}, 'content': [
+                        {'component': 'VBtn', 'props': {'color': 'primary', 'variant': 'elevated', 'class': 'mr-2', 'onClick': "function(){if(window.$mp){window.$mp.mergeModel({edit_open:true,edit_id:'',edit_name:'',edit_enabled:true,edit_mode:'rest',edit_customer:'',edit_password:''});}else{alert('缺少$mp助手');}}"}, 'text': '添加账户'}
+                    ]}
+                ]
+            },
+            {
+                'component': 'VRow',
+                'content': [
+                    {'component': 'VCol', 'props': {'cols': 12}, 'content': [
+                        {'component': 'VList', 'props': {'lines': 'one', 'density': 'comfortable'}, 'content': (account_items if account_items else [{'component': 'VListItem', 'content': [{'component': 'VListItemTitle', 'text': '暂无账户，请先“添加账户”'}]}])}
+                    ]}
+                ]
+            },
+            edit_dialog
+        ], (lambda: (lambda d: (d.update({**{f'enable_'+str(a.get('id')): bool(a.get('enabled', True)) for a in (self._accounts or [])}}) or d))({
             "enabled": self._enabled,
             "cron": self._cron or "",
             "onlyonce": False,
@@ -388,11 +473,19 @@ class VPSMonitor(_PluginBase):
             "notify_all_ok": self._notify_all_ok,
             "insecure_tls": self._insecure_tls,
             "debug_dump": self._debug_dump,
-            # REST 默认
+            # REST 兼容
             "api_mode": self._api_mode or "rest",
             "rest_base_url": "",
             "rest_access_token": self._rest_access_token or "",
-        }
+            # 账户编辑模型
+            "edit_open": False,
+            "edit_id": "",
+            "edit_name": "",
+            "edit_enabled": True,
+            "edit_mode": "rest",
+            "edit_customer": "",
+            "edit_password": "",
+        }))()
 
     # ============ 内部实现 ============
     def _refresh_access_token(self) -> bool:
