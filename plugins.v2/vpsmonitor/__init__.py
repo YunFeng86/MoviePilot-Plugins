@@ -375,42 +375,7 @@ class VPSMonitor(_PluginBase):
                         ]
                     },
                     
-                    {
-                        'component': 'VRow',
-                        'props': {'show': "{{ api_mode == 'rest' }}"},
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12, 'md': 3, 'class': 'd-flex justify-start'},
-                                'content': [{
-                                    'component': 'VBtn',
-                                    'props': {
-                                        'color': 'primary',
-                                        'variant': 'elevated',
-                                        'class': 'mt-2',
-                                        'onClick': ("function(event){" + onclick_revoke_js_script + "}" if (self._api_mode == 'rest' and self._rest_access_token) else "function(event){" + onclick_get_js_script + "}"),
-                                        'id': 'vpsmonitor-auth-btn'
-                                    },
-                                    'text': ('取消授权' if (self._api_mode == 'rest' and self._rest_access_token) else '获取验证链接')
-                                }]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 9, 'md': 9},
-                                'content': [{
-                                    'component': 'VAlert',
-                                    'props': {
-                                        'type': 'info',
-                                        'variant': 'tonal',
-                                        'density': 'compact',
-                                        'border': 'start',
-                                        'color': 'primary'
-                                    },
-                                    'text': '登录 Netcup SCP 账号并授权本应用，授权后将自动保存令牌；可点击“取消授权”撤销。'
-                                }]
-                            }
-                        ]
-                    },
+                    # REST 授权提示移入“账户管理”后续页面（此处暂不展示按钮）
                     {
                         'component': 'VRow',
                         'content': [
@@ -779,6 +744,77 @@ class VPSMonitor(_PluginBase):
             self._rest_token_expires_at = None
             self.__update_config()
             return {'code': 200, 'message': 'revoked'}
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
+
+    # ===== 多账户：新增 / 删除 / 更新 =====
+    def account_add(self, req: Optional[dict] = None):
+        """新增账户：入参 {name}，返回 data.id"""
+        try:
+            import uuid
+            name = None
+            if isinstance(req, dict):
+                name = req.get('name')
+            if not name:
+                name = '新账户'
+            acc = {
+                'id': uuid.uuid4().hex,
+                'name': str(name),
+                'enabled': True,
+                'api_mode': 'rest',
+                'rest_access_token': None,
+                'rest_refresh_token': None,
+                'rest_token_expires_at': None,
+            }
+            if not isinstance(self._accounts, list):
+                self._accounts = []
+            self._accounts.append(acc)
+            self.__update_config()
+            return {'code': 200, 'message': 'ok', 'data': acc}
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
+
+    def account_remove(self, req: Optional[dict] = None):
+        """删除账户：入参 {id}"""
+        try:
+            if not isinstance(req, dict):
+                return {'code': 400, 'message': 'id required'}
+            acc_id = req.get('id')
+            if not acc_id:
+                return {'code': 400, 'message': 'id required'}
+            if not isinstance(self._accounts, list):
+                self._accounts = []
+            self._accounts = [a for a in self._accounts if a.get('id') != acc_id]
+            self.__update_config()
+            return {'code': 200, 'message': 'ok'}
+        except Exception as e:
+            return {'code': 500, 'message': f'{e}'}
+
+    def account_update(self, req: Optional[dict] = None):
+        """更新账户：入参 {id, name?, enabled?, api_mode?, customer?, password?}"""
+        try:
+            if not isinstance(req, dict):
+                return {'code': 400, 'message': 'invalid request'}
+            acc_id = req.get('id')
+            if not acc_id or not isinstance(self._accounts, list):
+                return {'code': 400, 'message': 'id required'}
+            for a in self._accounts:
+                if a.get('id') == acc_id:
+                    if 'name' in req:
+                        a['name'] = str(req.get('name') or '')
+                    if 'enabled' in req:
+                        a['enabled'] = bool(req.get('enabled'))
+                    if 'api_mode' in req:
+                        mode = str(req.get('api_mode') or 'rest').lower()
+                        a['api_mode'] = 'soap' if mode == 'soap' else 'rest'
+                    # SOAP 凭据
+                    if 'customer' in req:
+                        a['customer'] = req.get('customer')
+                    if 'password' in req:
+                        a['password'] = req.get('password')
+                    self.__update_config()
+                    return {'code': 200, 'message': 'ok'}
+            return {'code': 404, 'message': 'account not found'}
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
