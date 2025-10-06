@@ -10,18 +10,5 @@
     "history": {
       "v1.0.0": "支持使用OneBot v11协议发送消息通知"
     }
-  },
-  "VPSMonitor": {
-    "name": "Netcup VPS 限速监控",
-    "description": "定时检测NC SCP 下 VPS 是否被限速，并通过通知发送结果。支持 REST/WSDL 接口。",
-    "labels": "VPS,监控,通知",
-    "version": "0.2.0",
-    "icon": "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/Netcup_A.png",
-    "author": "YunFeng",
-    "level": 1,
-    "history": {
-      "v0.1.0": "初始版本：支持限速检测与通知，Cron 定时与立即运行一次",
-      "v0.2.0": "新增 REST 接口支持（可选择 AUTO/REST/WSDL），REST 基址与认证可配置"
-    }
   }
 }

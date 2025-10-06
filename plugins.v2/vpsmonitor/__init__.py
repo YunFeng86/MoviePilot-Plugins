@@ -25,7 +25,7 @@ class VPSMonitor(_PluginBase):
     plugin_name = "Netcup VPS 限速监控"
     plugin_desc = "定时检测NC SCP 下 VPS 是否被限速，并通过通知插件发送结果。"
     plugin_icon = "https://raw.githubusercontent.com/YunFeng86/MoviePilot-Plugins/main/icons/Netcup_A.png"
-    plugin_version = "0.2.0"
+    plugin_version = "0.3.0"
     plugin_author = "YunFeng"
     author_url = "https://github.com/YunFeng86"
     plugin_config_prefix = "vpsmonitor_"
@@ -456,7 +456,7 @@ class VPSMonitor(_PluginBase):
             logger.warning(f"REST 刷新令牌异常：{e}")
             return False
     def _run_check(self):
-        """执行一次检测"""
+        """执行一次检测（支持多账户聚合）"""
         # 依赖检查
         try:
             import requests
@@ -471,7 +471,236 @@ class VPSMonitor(_PluginBase):
             self._notify("🔴 VPS 监控错误", f"缺少依赖：{e}", success=False)
             return
 
-        # ========== 尝试 REST 模式 ==========
+        # ========== 多账户优先 ==========
+        # 若配置了 accounts 且存在启用的账户，则逐账户执行并汇总；
+        # 否则回退到单账户（全局配置）逻辑以保持兼容。
+        try_accounts = []
+        if isinstance(self._accounts, list):
+            try_accounts = [a for a in self._accounts if a and a.get('enabled', True)]
+
+        if try_accounts:
+            try:
+                import requests, time as _t, ssl
+                from requests import Session
+                from requests.adapters import HTTPAdapter
+                from urllib3.poolmanager import PoolManager
+
+                base = (self._rest_base_url or 'https://www.servercontrolpanel.de/scp-core')
+
+                # 聚合结果
+                throttled_map: Dict[str, List[str]] = {}
+                ok_counts: List[Tuple[str, int]] = []
+                warns: List[str] = []
+
+                def _refresh_for_account(acc: Dict[str, Any]) -> bool:
+                    """使用账户内 refresh_token 刷新 access_token"""
+                    try:
+                        import requests, time
+                        rt = acc.get('rest_refresh_token')
+                        if not rt:
+                            return False
+                        resp = requests.post(
+                            'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/token',
+                            data={
+                                'grant_type': 'refresh_token',
+                                'refresh_token': rt,
+                                'client_id': 'scp'
+                            }, timeout=15
+                        )
+                        if resp.status_code != 200:
+                            logger.warning(f"REST 刷新令牌失败（账户 {acc.get('name','')}）：{resp.text}")
+                            return False
+                        data = resp.json() or {}
+                        acc['rest_access_token'] = data.get('access_token')
+                        acc['rest_refresh_token'] = data.get('refresh_token') or rt
+                        expires_in = data.get('expires_in') or 300
+                        acc['rest_token_expires_at'] = int(time.time()) + int(expires_in)
+                        self.__update_config()
+                        return True
+                    except Exception as e:
+                        logger.warning(f"REST 刷新令牌异常（账户 {acc.get('name','')}）：{e}")
+                        return False
+
+                for acc in try_accounts:
+                    name = str(acc.get('name') or acc.get('id') or '未命名账户')
+                    mode = (acc.get('api_mode') or 'rest').lower()
+                    if mode == 'rest':
+                        s = requests.Session()
+                        s.verify = not self._insecure_tls
+
+                        # 访问令牌就绪性：无 AT 但有 RT → 刷新；即将过期 → 刷新
+                        now = int(_t.time())
+                        at = acc.get('rest_access_token')
+                        rt = acc.get('rest_refresh_token')
+                        exp = acc.get('rest_token_expires_at')
+                        if (not at) and rt:
+                            _refresh_for_account(acc)
+                            at = acc.get('rest_access_token')
+                            exp = acc.get('rest_token_expires_at')
+                        elif exp and now >= int(exp) - 60:
+                            _refresh_for_account(acc)
+                            at = acc.get('rest_access_token')
+                            exp = acc.get('rest_token_expires_at')
+
+                        if not at:
+                            warns.append(f"[{name}] 未授权 REST（缺少 Access Token）")
+                            continue
+
+                        headers = {'Authorization': f"Bearer {at}"}
+                        try:
+                            r = s.get(f"{base}/api/v1/servers", headers=headers, timeout=15)
+                            if r.status_code == 401 and _refresh_for_account(acc):
+                                headers = {'Authorization': f"Bearer {acc.get('rest_access_token')}"}
+                                r = s.get(f"{base}/api/v1/servers", headers=headers, timeout=15)
+                            r.raise_for_status()
+                            servers = r.json()
+                            if isinstance(servers, dict) and 'servers' in servers:
+                                servers = servers.get('servers')
+                            if not isinstance(servers, list):
+                                raise Exception("REST 返回格式异常：servers 不是列表")
+
+                            def first_ipv4(v):
+                                ips = v.get('ips') if isinstance(v.get('ips'), list) else []
+                                for ip in ips:
+                                    if ':' not in ip:
+                                        return ip
+                                return ips[0] if ips else '未知'
+
+                            throttled_list: List[str] = []
+                            for sv in servers:
+                                sid = sv.get('id') or sv.get('serverId') or sv.get('uuid') or sv.get('vServerName')
+                                sname = sv.get('vServerName') or sv.get('hostname') or sid
+                                if not sid:
+                                    continue
+                                r2 = s.get(f"{base}/api/v1/servers/{sid}/interfaces", headers=headers, timeout=15)
+                                if r2.status_code == 401 and _refresh_for_account(acc):
+                                    headers = {'Authorization': f"Bearer {acc.get('rest_access_token')}"}
+                                    r2 = s.get(f"{base}/api/v1/servers/{sid}/interfaces", headers=headers, timeout=15)
+                                r2.raise_for_status()
+                                itf_json = r2.json()
+                                if isinstance(itf_json, dict) and 'interfaces' in itf_json:
+                                    interfaces = itf_json.get('interfaces') or []
+                                else:
+                                    interfaces = itf_json if isinstance(itf_json, list) else []
+                                is_throttled = False
+                                primary_ip = first_ipv4(sv)
+                                for iface in interfaces:
+                                    if iface.get('trafficThrottled') is True:
+                                        is_throttled = True
+                                        ipv4s = iface.get('ipv4IP') or []
+                                        if isinstance(ipv4s, list) and ipv4s:
+                                            primary_ip = ipv4s[0]
+                                        break
+                                if is_throttled:
+                                    throttled_list.append(f"• {sname} ({primary_ip})")
+
+                            throttled_map[name] = throttled_list
+                            ok_counts.append((name, len(servers)))
+                        except Exception as e:
+                            warns.append(f"[{name}] REST 调用失败：{e}")
+
+                    else:  # SOAP per-account
+                        # 账户 SOAP 凭据
+                        customer = acc.get('customer')
+                        password = acc.get('password')
+                        if not customer or not password:
+                            warns.append(f"[{name}] SOAP 模式缺少凭据")
+                            continue
+
+                        class TLSAdapter(HTTPAdapter):
+                            def __init__(self, insecure: bool = False, *args, **kwargs):
+                                self._insecure = insecure
+                                super().__init__(*args, **kwargs)
+                            def init_poolmanager(self, connections, maxsize, block=False):
+                                ctx = ssl.create_default_context()
+                                try:
+                                    ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+                                except Exception:
+                                    pass
+                                if self._insecure:
+                                    ctx.check_hostname = False
+                                    ctx.verify_mode = ssl.CERT_NONE
+                                self.poolmanager = PoolManager(
+                                    num_pools=connections,
+                                    maxsize=maxsize,
+                                    block=block,
+                                    ssl_context=ctx)
+
+                        session = Session()
+                        session.mount('https://', TLSAdapter(insecure=self._insecure_tls))
+                        session.verify = not self._insecure_tls
+
+                        from zeep import Client, Settings  # type: ignore
+                        from zeep.transports import Transport  # type: ignore
+                        settings = Settings(strict=False, xml_huge_tree=True)
+                        try:
+                            client = Client(wsdl=self._wsdl_url, settings=settings, transport=Transport(session=session))
+                        except Exception as e:
+                            warns.append(f"[{name}] 连接 WSDL 失败：{e}")
+                            continue
+
+                        try:
+                            vps_list = client.service.getVServers(loginName=customer, password=password)
+                            if not vps_list:
+                                ok_counts.append((name, 0))
+                                throttled_map[name] = []
+                                continue
+                        except Exception as e:
+                            warns.append(f"[{name}] 获取 VPS 列表失败：{e}")
+                            continue
+
+                        throttled_list: List[str] = []
+                        for vname in vps_list:
+                            try:
+                                info = client.service.getVServerInformation(
+                                    loginName=customer,
+                                    password=password,
+                                    vservername=vname,
+                                    language=self._language
+                                )
+                                ips = getattr(info, 'ips', []) or []
+                                primary_ip = ips[0] if ips else '未知'
+                                interfaces = getattr(info, 'serverInterfaces', []) or []
+                                is_throttled = False
+                                for iface in interfaces:
+                                    if hasattr(iface, 'trafficThrottled') and getattr(iface, 'trafficThrottled', False) is True:
+                                        is_throttled = True
+                                        break
+                                if is_throttled:
+                                    throttled_list.append(f"• {vname} ({primary_ip})")
+                            except Exception as e:
+                                logger.warning(f"[{name}] 获取 {vname} 信息失败：{e}")
+                        throttled_map[name] = throttled_list
+                        ok_counts.append((name, len(vps_list)))
+
+                # 汇总通知
+                any_throttled = any(v for v in throttled_map.values())
+                if any_throttled:
+                    lines: List[str] = []
+                    for n, lst in throttled_map.items():
+                        if not lst:
+                            continue
+                        lines.append(f"【{n}】")
+                        lines.extend(lst)
+                    if warns:
+                        lines.append("")
+                        lines.append("注意：")
+                        lines.extend([f"- {w}" for w in warns])
+                    self._notify("⚠️ VPS 被限速（多账户）", "\n".join(lines), success=False)
+                else:
+                    if self._notify_all_ok:
+                        lines = [f"• {n}：共 {cnt} 台，均未被限速" for n, cnt in ok_counts]
+                        if warns:
+                            lines.append("")
+                            lines.append("注意：")
+                            lines.extend([f"- {w}" for w in warns])
+                        self._notify("🟢 所有账户 VPS 正常", "\n".join(lines), success=True)
+                return
+            except Exception as e:
+                logger.error(f"多账户聚合执行失败：{e}")
+                # 不中断，继续尝试单账户逻辑作为降级
+
+        # ========== 尝试 REST 模式（单账户兼容） ==========
         if self._api_mode == "rest":
             try:
                 throttled_rest: List[str] = []
@@ -564,7 +793,7 @@ class VPSMonitor(_PluginBase):
                 self._notify("🔴 REST 调用失败", str(e), success=False)
                 return
 
-        # ========== SOAP 模式 ==========
+        # ========== SOAP 模式（单账户兼容） ==========
         if self._api_mode == "soap":
             # SOAP 需要凭据
             if not self._customer or not self._password:
@@ -678,10 +907,13 @@ class VPSMonitor(_PluginBase):
                     content = f"共 {len(vps_list)} 台 VPS，均未被限速。"
                     self._notify(title, content, success=True)
 
-    def start_device_flow(self):
-        """生成设备码，返回带 user_code 的验证链接"""
+    def start_device_flow(self, req: Optional[dict] = None):
+        """生成设备码，返回带 user_code 的验证链接（可选 account id 回显）"""
         try:
             import requests
+            acc_id = None
+            if isinstance(req, dict):
+                acc_id = req.get('id') or req.get('account_id')
             resp = requests.post(
                 'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/auth/device',
                 data={'client_id': 'scp', 'scope': 'offline_access openid'}, timeout=15
@@ -697,18 +929,22 @@ class VPSMonitor(_PluginBase):
                     'verification_uri': data.get('verification_uri'),
                     'verification_uri_complete': data.get('verification_uri_complete'),
                     'expires_in': data.get('expires_in'),
-                    'interval': data.get('interval')
+                    'interval': data.get('interval'),
+                    'account_id': acc_id
                 }
             }
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
     def poll_device_token(self, device_code: Optional[dict] = None):
-        """轮询获取设备码令牌"""
+        """轮询获取设备码令牌（支持为指定账户保存 token）"""
         try:
             import requests, time
             req = device_code or {}
             dc = req.get('device_code') if isinstance(req, dict) else None
+            acc_id = req.get('id') if isinstance(req, dict) else None
+            if not acc_id and isinstance(req, dict):
+                acc_id = req.get('account_id')
             resp = requests.post(
                 'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/token',
                 data={
@@ -720,20 +956,55 @@ class VPSMonitor(_PluginBase):
             if resp.status_code != 200:
                 return {'code': 202, 'message': resp.text}
             data = resp.json() or {}
-            self._rest_access_token = data.get('access_token')
-            self._rest_refresh_token = data.get('refresh_token')
+            access_token = data.get('access_token')
+            refresh_token = data.get('refresh_token')
             expires_in = data.get('expires_in') or 300
             import time as _t
-            self._rest_token_expires_at = int(_t.time()) + int(expires_in)
+            expires_at = int(_t.time()) + int(expires_in)
+
+            # 若传入账户 ID，则保存至指定账户；否则保存至全局字段（兼容旧行为）
+            saved_to = 'global'
+            if acc_id and isinstance(self._accounts, list):
+                for a in self._accounts:
+                    if a.get('id') == acc_id:
+                        a['rest_access_token'] = access_token
+                        a['rest_refresh_token'] = refresh_token
+                        a['rest_token_expires_at'] = expires_at
+                        saved_to = f"account:{acc_id}"
+                        break
+            if saved_to == 'global':
+                self._rest_access_token = access_token
+                self._rest_refresh_token = refresh_token
+                self._rest_token_expires_at = expires_at
             self.__update_config()
-            return {'code': 200, 'message': 'ok'}
+            return {'code': 200, 'message': 'ok', 'data': {'saved_to': saved_to}}
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
-    def revoke_device_token(self):
-        """撤销令牌并清除本地"""
+    def revoke_device_token(self, req: Optional[dict] = None):
+        """撤销令牌并清除本地（可指定账户）"""
         try:
             import requests
+            acc_id = None
+            if isinstance(req, dict):
+                acc_id = req.get('id') or req.get('account_id')
+
+            if acc_id and isinstance(self._accounts, list):
+                for a in self._accounts:
+                    if a.get('id') == acc_id:
+                        rt = a.get('rest_refresh_token')
+                        if rt:
+                            requests.post(
+                                'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/revoke',
+                                data={'client_id': 'scp', 'token': rt, 'token_type_hint': 'refresh_token'}, timeout=15
+                            )
+                        a['rest_access_token'] = None
+                        a['rest_refresh_token'] = None
+                        a['rest_token_expires_at'] = None
+                        self.__update_config()
+                        return {'code': 200, 'message': 'revoked', 'data': {'scope': f'account:{acc_id}'}}
+
+            # 全局回退
             if self._rest_refresh_token:
                 requests.post(
                     'https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/revoke',
@@ -743,7 +1014,7 @@ class VPSMonitor(_PluginBase):
             self._rest_refresh_token = None
             self._rest_token_expires_at = None
             self.__update_config()
-            return {'code': 200, 'message': 'revoked'}
+            return {'code': 200, 'message': 'revoked', 'data': {'scope': 'global'}}
         except Exception as e:
             return {'code': 500, 'message': f'{e}'}
 
